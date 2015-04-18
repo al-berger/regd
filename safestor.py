@@ -151,7 +151,7 @@ def main():
 	if item == '--start': 
 		if not os.path.exists( server_address ):
 			if not os.path.exists( ENCFILE ):
-				sys.stderr.write( "safestor: Cannot file encrypted data file. Exiting.\n")
+				sys.stderr.write( "safestor: Cannot find encrypted data file. Exiting.\n")
 				return -1
 
 			ftxt = subprocess.check_output("gpg --textmode -d {0}".format( ENCFILE ), shell = True,
