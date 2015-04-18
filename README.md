@@ -25,9 +25,11 @@ This will add 'safestor.py' inside the local python bin folder.
 
    Usage
 -----------
-`safestor <item_name>` - returns the decrypted data stored with alias "item_name"
-`safestor --start` - starts server
-`safestor --stop` - stops server
+```
+safestor <item_name> - returns the decrypted data stored with alias "item_name"
+safestor --start - starts server
+safestor --stop - stops server
+```
 
 
   Confidential data file
@@ -36,13 +38,13 @@ This will add 'safestor.py' inside the local python bin folder.
 Private data is stored in a gpg encrypted file, which is created
 by encrypting a usual text file as follows:
 
-`gpg --encrypt --recipient "<key description>" -o securefile.gpg textdata.txt`
+	gpg --encrypt --recipient "<key description>" -o securefile.gpg textdata.txt
 
 For creating encrypted data file, a safestor user needs to have a private
 encryption key. If a user doesn't have such a key, it can be generated 
 with command:
 
-`gpg --gen-key`
+	gpg --gen-key
 
 Unencrypted text file, from which encrypted file is created, should
 contain data in the `<key=value>` pairs, where 'key' is the name or aliase
@@ -90,7 +92,7 @@ fi
 Similar calls can be made from programs and scripts in any other programming
 language.
 
-( Note, that stderr stream of is used by safestor for outputting error 
+( Note, that stderr stream is used by safestor for outputting error 
 messages, so the stderr output should be distinguished from the 
 stdout output, which contains the required data. )
 
@@ -102,6 +104,18 @@ Safestor can work either as constantly running server or in individual runs,
 when each query to safestor is served in a separate program run, where 
 safestor exits after responding the query without starting the server. 
 
+Safestor can be started as server from a script or command line with:
+
+	safestor --start
+	
+To run from command line in background, `&` should be added:
+
+	safestor --start &
+	
+Safestor server can be stopped with:
+
+	safestor --stop
+
 When running as server, safestor stores the data in computer's memory so the 
 user doesn't need to enter the password multiple times.  When the server stops, 
 all cached data is automatically erased from the computer's memory.
@@ -110,8 +124,14 @@ all cached data is automatically erased from the computer's memory.
    Configuration
 ---------------------
 
-Encrypted data file name can be either default `$HOME/.sec/safestor.gpg`, or
-can be specified in the configuration file `$HOME/.config/safestor/safestor.conf`
+Encrypted data file name can be either default:
+
+`$HOME/.sec/safestor.gpg` 
+
+or can be specified in the configuration file:
+
+`$HOME/.config/safestor/safestor.conf`
+
 in the form:
 
 `encfile = /path/to/encrypted/file`
