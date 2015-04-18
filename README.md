@@ -72,7 +72,7 @@ the decrypted data from the stdout output of safestor.
 
 Request to safestor for data is done by running the command:
 
-`safestor <item_name>`
+	safestor <item_name>
 
 For example:
 
