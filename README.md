@@ -1,15 +1,21 @@
   Safestor
 ============
 
-Safestor is a local service which helps to use confidential data
-such as passwords, etc., stored in encrypted form, from within any 
-program or script. It enables a programmer or admin to avoid storing 
-non-encrypted confidential data in program and script source files.
+Safestor is a local data cache daemon which helps to exchange data
+between various processes as well as gather and store user input from
+the command line. 
+
+The stored data may include confidential data such as passwords, etc., 
+which can be read directly from an encrypted file upon prompting the user
+for the password. This may help to avoid storing non-encrypted confidential 
+data in program and script source files.
 
    Features
 ---------------
-- Responds to data requests by outputting required decrypted data to stdout.
-- Can run either as a server or in separate runs.
+- Keeps data in RAM in the form of 'key=value' entries.
+- Data entries can be retrieved either via command line calls or through 
+	socket connection.
+- Can run either as a server(daemon) or in separate runs.
 - Confidential data is secured by gpg encryption with the user's key.
 
 
@@ -29,6 +35,8 @@ This will add 'safestor.py' inside the local python bin folder.
 safestor <item_name> - returns the decrypted data stored with alias "item_name"
 safestor --start - starts server
 safestor --stop - stops server
+safestor --add <key=value> - adds data entry to cache
+safestor --load <data> - loads multiple entries to cache
 ```
 
 
