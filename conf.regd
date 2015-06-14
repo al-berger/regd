@@ -1,0 +1,63 @@
+# regd configuration options
+#
+# In this file regd configuration options are described. 
+# Options in this file initially are set with the values which
+# regd uses by default.
+# Any option can be uncommented and set with a custom value and 
+# the modified version of this file should be saved as 'regd.conf'.
+# It is recommended to keep the original unmodified version of 
+# this file for future reference.
+
+[general]
+
+# Default encrypted file name.
+# ------------------------------ 
+# regd reads this file automatically when during a program session
+# it receives the first '--get-sec' command (a command for getting the
+# value of a secure token). If this option is not set, or file does not 
+# exist, then secure tokens can be loaded with '--load-file-sec <filename>' 
+# command. 
+
+# encfile = "~/.sec/safestor.gpg"
+
+
+# Load secure tokens command
+# ----------------------------
+# The executable system command string for loading secure tokens.
+# The command should print to standard output the list of tokens 
+# (name/value pairs) to be loaded separated with the newline character 
+# (one token per line). 
+# This command is used for loading secure tokens from the default encrypted
+# file and from other encrypted files with '--load-file-sec' command. 
+# If this command uses file names (or other parameters) which are passed as 
+# argument to '--load-file-sec' command, this argument is denoted in the
+# command string as 'FILENAME' macro, which is expanded with the actual
+# file name when the command is executed.
+
+# load_sectokens_cmd = "gpg --textmode -d FILENAME"
+
+
+# Token separator
+# ---------------
+# A character or sequence of characters used for separating
+# multiple tokens in the '--load' and '--load-pers' command.
+
+# token_separator = @#$
+
+
+# Log file
+# --------
+# If a log file is specified, then regd will write error messages
+# in this file in addition to printing them to standard output.
+
+# logfile = ""
+
+
+# Persistent storage file
+# -----------------------
+# A file where persistent tokens are stored. If this option is not 
+# set or the file doesn't exist, then persistent tokens are not enabled 
+# and commands for getting and setting persistent tokens fail.
+
+# persfile = ~/.config/regd/persistent
+ 
