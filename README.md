@@ -1,7 +1,7 @@
   Regd
 =========
 
-Regd is a registry (like Windows registry) where other programs and 
+Regd is a registry service (like Windows registry) where other programs and 
 computer users can keep and retrieve back various information such
 as configuration settings, dynamic data, etc.
 
@@ -46,46 +46,19 @@ someVar = regdHelperFunc( cmd="get", data="SOME APP: some setting" )
 
 ```
 
-
-
-
-Safestor is a local data cache daemon which helps to exchange data
-between various processes as well as gather and store user input from
-the command line. 
-
 The stored data may include confidential data such as passwords, etc., 
 which can be read directly from an encrypted file upon prompting the user
 for the password. This may help to avoid storing non-encrypted confidential 
 data in program and script source files.
 
-   Features
----------------
-- Keeps data in RAM in the form of 'key=value' entries.
-- Data entries can be retrieved either via command line calls or through 
-	socket connection.
-- Can run either as a server(daemon) or in separate runs.
-- Confidential data is secured by gpg encryption with the user's key.
-
-
 Install
 -------
 
-To install safestor, simply:
+To install safestor:
 
 	$ pip install safestor.py
 
 This will add 'safestor.py' inside the local python bin folder.
-
-
-   Usage
------------
-```
-safestor <item_name> - returns the decrypted data stored with alias "item_name"
-safestor --start - starts server
-safestor --stop - stops server
-safestor --add <key=value> - adds data entry to cache
-safestor --load <data> - loads multiple entries to cache
-```
 
 
   Confidential data file
