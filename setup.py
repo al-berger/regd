@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-    safestor.py
+    regd.py
     ~~~~~~~~~~~
     
-    Secure storage server.
+    Secure registry and data cache.
     
     :copyright: (c) 2015 by Albert Berger.
-    :license: BSD, see LICENSE for more details.
+    :license: GPL, see LICENSE for more details.
 """
-from setuptools import setup
-import safestor
+from setuptools import setup, find_packages
+import regd
 
 classifiers = [
     'Development Status :: 4 - Beta',
@@ -17,28 +17,31 @@ classifiers = [
     'Intended Audience :: Developers',
     'Intended Audience :: System Administrators',
     'Intended Audience :: Information Technology',
-    'License :: OSI Approved :: BSD License',
+    'License :: OSI Approved :: GPL License',
     'Operating System :: MacOS',
     'Operating System :: POSIX',
     'Operating System :: Unix',
-    'Operating System :: Microsoft',
-    'Operating System :: OS Independent',
     'Programming Language :: Python :: 3.4',
     'Topic :: Security :: Cryptography',
     'Topic :: Utilities',
 ]
 
 setup(
-    name                = 'safestor.py',
-    version             = safestor.__version__,
-    description         = safestor.__description__,
+    name                = 'regd.py',
+    version             = regd.__version__,
+    description         = regd.__description__,
     long_description    = open('README.md').read().strip(),
-    author              = safestor.__author__,
-    author_email        = safestor.__author_email__,
-    url                 = safestor.__homepage__,
-    license             = safestor.__license__,
-    py_modules          = ['safestor'],
-    scripts             = ['safestor.py'],
+    author              = regd.__author__,
+    author_email        = regd.__author_email__,
+    url                 = regd.__homepage__,
+    license             = regd.__license__,
+    platform            = 'Linux',
+    packages            = find_packages(exclude=['test']),
+    entry_points="""
+        [console_scripts]
+        regd=regd.regd:main
+    """,
     install_requires    = [],
-    classifiers         = classifiers
+    classifiers         = classifiers,
+    keywords            = "registry settings configuration manager daemon cache"
 )

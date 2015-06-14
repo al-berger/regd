@@ -1,5 +1,53 @@
-  Safestor
-============
+  Regd
+=========
+
+Regd is a registry (like Windows registry) where other programs and 
+computer users can keep and retrieve back various information such
+as configuration settings, dynamic data, etc.
+
+Regd can be used both via command line and through sockets.
+
+Regd can securely deal with confidential data too. User can feed to
+regd an encrypted file with confidential data (e.g. database 
+password) and regd will function as a keyring-agent or password
+manager.
+
+Regd can keep data temporarily or it can store data on disk and read
+it back automatically during startup.
+
+## Examples of using regd
+
+From command line:
+
+```
+$ regd --start
+$ regd --add "some variable = some value"
+1
+$ regd --get "some variable"
+1some value
+$ regd --add-pers "SOME APP: some setting = 1234"
+1
+$ regd --list-all
+[global]
+    some variable = some value
+[SOME APP]
+    some setting = 1234
+$ regd --check
+1Ready and waiting.
+$ regd --stop
+```
+
+Via sockets (with a helper function):
+
+```
+# Python 
+
+someVar = regdHelperFunc( cmd="get", data="SOME APP: some setting" )
+
+```
+
+
+
 
 Safestor is a local data cache daemon which helps to exchange data
 between various processes as well as gather and store user input from
