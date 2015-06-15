@@ -44,7 +44,7 @@ listing commands.
 ## COMMANDS
 
 ### __--start__
-Start regd. This command can be used with a command line option '__--log-level__' (see below).
+Start regd. This command can be used with command line options: __--host__, __--port__, __--user__, __--log-level__ (see below). To run regd on an Internet address, the host name and port number should be specified in command line options __--host__ and __--port__ respectively along with __--start__ option. If "--host" and "--port" are not specified, regd will run on a Unix file socket.
 
 ### --stop
 Stop regd.
@@ -136,6 +136,10 @@ output. Log level can be one of the following values:
 DEBUG, INFO, WARNING, ERROR, CRITICAL.
 Log level is the type of events which which cause the
 program to produce output.
+
+### --user <_username_>
+The user name of the effective owner of the server process
+which the command is sent to.
 
      
 ## CONFIGURATION FILE
