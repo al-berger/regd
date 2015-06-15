@@ -18,7 +18,6 @@ classifiers = [
     'Intended Audience :: System Administrators',
     'Intended Audience :: Information Technology',
     'License :: OSI Approved :: GPL License',
-    'Operating System :: MacOS',
     'Operating System :: POSIX',
     'Operating System :: Unix',
     'Programming Language :: Python :: 3.4',
