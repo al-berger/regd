@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 05:35:11"
+__lastedited__ = "2015-06-16 06:47:43"
 
-VERSION = ( 0, 4, 2, 2 )
+VERSION = ( 0, 4, 2, 3 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -23,7 +23,7 @@ __homepage__ = 'https://github.com/nbdsp/regd'
 __license__ = 'GPL'
 rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
-import sys, os, socket, signal, subprocess, logging, argparse, time, regex, pwd
+import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd
 from configparser import ConfigParser
 
 APPNAME = "regd"
@@ -142,7 +142,7 @@ def read_sec_file( filename, cmd ):
 	for s in ltxt:
 		if len( s ) == 0 or s[0] == '#' or s[0] == '"':
 			continue
-		mSect = regex.match( rgSection, s )
+		mSect = re.match( rgSection, s )
 		if mSect is not None:
 			curSect = mSect.group( 1 )
 			sectokens.add_section( curSect )
