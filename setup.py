@@ -9,7 +9,7 @@
     :license: GPL, see LICENSE for more details.
 """
 from distutils.core import setup
-import regd
+import regd.regd
 
 classifiers = [
     'Development Status :: 4 - Beta',
@@ -35,7 +35,7 @@ setup(
     url                 = regd.__homepage__,
     license             = regd.__license__,
     packages            = ['regd'],
-    scripts             = ['regd.regd'],
+    scripts             = ['regd.regd.py'],
     classifiers         = classifiers,
     keywords            = "registry settings configuration manager daemon cache"
 )
