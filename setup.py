@@ -8,7 +8,7 @@
     :copyright: (c) 2015 by Albert Berger.
     :license: GPL, see LICENSE for more details.
 """
-from distutils import setup
+from distutils.core import setup
 import regd
 
 classifiers = [
