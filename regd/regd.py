@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 12:31:04"
+__lastedited__ = "2015-06-16 13:17:58"
 
-VERSION = ( 0, 4, 2, 4 )
+VERSION = ( 0, 4, 2, 5 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -227,19 +227,28 @@ def list_tokens( cp, sec = None ):
 
 	return ret
 
-def contactServer( item ):
+def contactServer( item, host=None, port=None ):
 	'''
 	"Client" function. Performs requests to a running server.
-	Called from main() when a request to the server is made via CLI.
 	'''
-	sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
+	if host:
+		if not port:
+			return "0Error: port number is not provided."
+		# Create an Internet socket
+		sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+	else:
+		sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
+		
 	if item.find( "_sec " ) != -1 or item.endswith( "_sec" ):
 		sock.settimeout( 30 )
 	else:
 		sock.settimeout( 3 )
 
 	try:
-		sock.connect( server_address )
+		if host:
+			sock.connect(( host, int(port) ))
+		else:
+			sock.connect( server_address )
 	except OSError as er:
 		resp = "0regd: connectServer: Socket error {0}: {1}\nServer address: {2}".format( 
 												er.errno, er.strerror, server_address )
@@ -344,7 +353,7 @@ def startServer():
 		if host:
 			sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
 			sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
-			sock.bind( ( host, port ) )
+			sock.bind( ( host, int(port) ) )
 		else:
 			sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
 			sock.bind( server_address )
@@ -614,7 +623,7 @@ def startServer():
 			connection.shutdown( socket.SHUT_RDWR )
 			connection.close()
 
-def main():
+def main(*kwargs):
 	global homedir, server_address, log, host, port
 
 	# Parsing command line
@@ -637,7 +646,7 @@ def main():
 			setattr( namespace, "cmd", self.dest[:] )
 
 	parser = argparse.ArgumentParser( 
-		description = 'InfoStor : Secure information storage.'
+		description = 'regd : Registry server.'
 	)
 	group = parser.add_mutually_exclusive_group()
 	parser.add_argument( 'token', nargs = '?', help = 'Get a token' )
@@ -673,7 +682,7 @@ def main():
 	group.add_argument( '--' + CLEAR_SEC.replace( '_', '-' ), action = ActionCmd, help = 'Remove all secure tokens' )
 	group.add_argument( '--' + CLEAR_SESSION.replace( '_', '-' ), action = ActionCmd, help = 'Remove all session and secure tokens' )
 
-	args = parser.parse_args()
+	args = parser.parse_args(*kwargs)
 
 	# Setting up local environment
 
@@ -731,7 +740,7 @@ def main():
 	# Handling command line
 
 	if not args.start:
-		if not os.path.exists( server_address ):
+		if not host and not os.path.exists( server_address ):
 			log.warning( "Server isn't running." )
 			return 1
 
@@ -739,12 +748,12 @@ def main():
 		return startServer()
 
 	elif args.stop:
-		if contactServer( CMDMARKER + STOP_SERVER ) != "1":
+		if contactServer( CMDMARKER + STOP_SERVER, host, port ) != "1":
 			log.error( "cmd 'stop': Cannot contact server." )
 			return -1
 
 	elif args.restart:
-		if contactServer( CMDMARKER + STOP_SERVER ) != "1":
+		if contactServer( CMDMARKER + STOP_SERVER, host, port ) != "1":
 			log.error( "cmd 'restart': Cannot contact server." )
 			return -1
 
@@ -754,10 +763,10 @@ def main():
 
 	elif hasattr( args, 'itemcmd' ):
 		if args.item:
-			res = contactServer( CMDMARKER + args.cmd + " " + args.item )
+			res = contactServer( CMDMARKER + args.cmd + " " + args.item, host, port )
 		else:
 			'''Default item'''
-			res = contactServer( CMDMARKER + args.cmd )
+			res = contactServer( CMDMARKER + args.cmd, host, port )
 		if res[0] != '1':
 			if args.cmd.startswith( "get" ):
 				print( "0", res )
@@ -770,7 +779,7 @@ def main():
 		print( res )
 
 	elif hasattr( args, "actioncmd" ):
-		res = contactServer( CMDMARKER + args.cmd )
+		res = contactServer( CMDMARKER + args.cmd, host, port )
 		if res[0] != '1':
 			log.error( "actioncmd: Cannot contact server." )
 			log.debug( res )
@@ -782,4 +791,4 @@ def main():
 
 
 if __name__ == "__main__":
-	sys.exit( main() )
+	sys.exit( main(sys.argv[:] ) )
