@@ -9,7 +9,7 @@
     :license: GPL, see LICENSE for more details.
 """
 from distutils.core import setup
-from regd import regd
+import regd
 
 classifiers = [
     'Development Status :: 4 - Beta',
