@@ -95,8 +95,8 @@ passw="${passw:1}"
 mount.cifs //remote.host/backup "/mnt/backup" -o username=john,password="${passw}",rw
 ```
 
-Install
--------
+Installing
+----------
 
 To install *regd*, download the latest release from [here](https://github.com/nbdsp/regd/releases),
 and then in the command line run:
@@ -104,11 +104,28 @@ and then in the command line run:
 	$ python setup.py install
 
 This will install *regd* to the local python packages.
-After installing *regd* can be started either manually:
+
+Running
+-------
+
+After installing *regd* can be started either manually or with any scheduler 
+like `systemd` or `cron`. *regd* can run either as a local daemon, using a file
+in `/var/run/user/$USERID/` directory as a socket, or it can run on a dedicated
+network address and function as a centralized settings server or data echange server.
 
 ```
-# For running as a local daemon
+# For running as a local daemon:
+
 $ regd --start
+
+# For running as a network server:
+
+$ regd --start --host some.hostname --port #####
+
+# To send command to regd running locally on other user account:
+
+$ regd --user john --get someName
+
 ```
 
 

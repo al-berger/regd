@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 08:12:16"
+__lastedited__ = "2015-06-16 10:57:48"
 
 VERSION = ( 0, 4, 2, 4 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
@@ -30,7 +30,6 @@ APPNAME = "regd"
 THISFILE = os.path.basename( __file__ )
 EODMARKER = "%^&"
 CMDMARKER = "&&&"
-ITEMMARKER = "@#$"
 GLSEC = "global"
 
 server_address = None
@@ -38,13 +37,6 @@ host = None
 port = None
 sockname = 'regd.sock'
 homedir = None
-
-tokens = ConfigParser()
-sectokens = ConfigParser()
-perstokens = ConfigParser()
-tokens.optionxform = str
-sectokens.optionxform = str
-perstokens.optionxform = str
 
 # Commands
 START_SERVER		 = "start"
@@ -125,7 +117,7 @@ def read_conf( cnf ):
 		for nam, val in cp.items( sec ):
 			cnf[nam] = val
 
-def read_sec_file( filename, cmd ):
+def read_sec_file( filename, cmd, tok ):
 	if not os.path.exists( filename ):
 		log.error( "Cannot find encrypted data file. Exiting." )
 		raise ISException( operationFailed, "File not found." )
@@ -149,9 +141,9 @@ def read_sec_file( filename, cmd ):
 		mSect = re.match( rgSection, s )
 		if mSect is not None:
 			curSect = mSect.group( 1 )
-			sectokens.add_section( curSect )
+			tok.add_section( curSect )
 		else:
-			add_token( sectokens, curSect + ":" + s )
+			add_token( tok, curSect + ":" + s )
 
 def add_token( cp, tok, noOverwrite = False ):
 	sec, _, opt = tok.rpartition( ":" )
@@ -304,6 +296,13 @@ def startServer():
 		except OSError:
 			if os.path.exists( server_address ):
 				raise
+			
+	tokens = ConfigParser()
+	sectokens = ConfigParser()
+	perstokens = ConfigParser()
+	tokens.optionxform = str
+	sectokens.optionxform = str
+	perstokens.optionxform = str			
 
 	# Default encrypted file name
 	ENCFILE = homedir + "/.sec/safestor.gpg"
@@ -313,6 +312,8 @@ def startServer():
 	READ_ENCFILE_CMD = "gpg --textmode -d FILENAME"
 	# Default persistent storage file
 	PERSFILE = homedir + "/.config/regd/persistent"
+	# Default token separator
+	ITEMMARKER = "@#$"
 
 	d = {}
 	read_conf( d )
@@ -491,7 +492,7 @@ def startServer():
 							if not sectokens.sections():
 								'''Sec tokens are not read yet. Read the default priv. file.'''
 								if not defencread:
-									read_sec_file( ENCFILE, READ_ENCFILE_CMD )
+									read_sec_file( ENCFILE, READ_ENCFILE_CMD, sectokens )
 									defencread = True
 							resp = "1" + get_token( sectokens, data )
 						except ISException as e:
@@ -528,7 +529,7 @@ def startServer():
 						file = data
 
 					try:
-						read_sec_file( file )
+						read_sec_file( file, READ_ENCFILE_CMD, sectokens  )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
