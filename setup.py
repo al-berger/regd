@@ -8,7 +8,7 @@
     :copyright: (c) 2015 by Albert Berger.
     :license: GPL, see LICENSE for more details.
 """
-from setuptools import setup, find_packages
+from distutils import setup
 import regd
 
 classifiers = [
@@ -26,7 +26,7 @@ classifiers = [
 ]
 
 setup(
-    name                = 'regd.py',
+    name                = 'regd',
     version             = regd.__version__,
     description         = regd.__description__,
     long_description    = open('README.md').read().strip(),
@@ -35,11 +35,8 @@ setup(
     url                 = regd.__homepage__,
     license             = regd.__license__,
     platform            = 'Linux',
-    packages            = find_packages(exclude=['test']),
-    entry_points="""
-        [console_scripts]
-        regd=regd.regd:main
-    """,
+    packages            = ['regd'],
+    scripts             = ['regd.regd'],
     install_requires    = [],
     classifiers         = classifiers,
     keywords            = "registry settings configuration manager daemon cache"
