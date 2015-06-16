@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 10:57:48"
+__lastedited__ = "2015-06-16 12:31:04"
 
 VERSION = ( 0, 4, 2, 4 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
@@ -25,6 +25,7 @@ rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
 import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd
 from configparser import ConfigParser
+import __main__
 
 APPNAME = "regd"
 THISFILE = os.path.basename( __file__ )
@@ -275,7 +276,7 @@ def startServer():
 			# If the server is restarted, give the previous instance time to exit cleanly.
 			time.sleep( 2 )
 			res = subprocess.check_output( 
-						"ps -ef | grep '{0} --start' | grep -v grep".format( __file__ ),
+						"ps -ef | grep '{0} --start' | grep -v grep".format( __main__.__file__ ),
 						shell = True )
 			res = res.decode( 'utf-8' )
 		except subprocess.CalledProcessError as e:
@@ -343,7 +344,7 @@ def startServer():
 		if host:
 			sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
 			sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
-			sock.bind( host, port )
+			sock.bind( ( host, port ) )
 		else:
 			sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
 			sock.bind( server_address )
