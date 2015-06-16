@@ -1,4 +1,4 @@
-  Regd
+  regd
 =========
 
 Regd is a registry service (like Windows registry) where other programs and 
@@ -7,13 +7,37 @@ as configuration settings, dynamic data, etc.
 
 Regd can be used both via command line and through sockets.
 
-Regd can securely deal with confidential data too. User can feed to
+Regd can securely handle confidential data. A user can load to
 regd an encrypted file with confidential data (e.g. database 
 password) and regd will function as a keyring-agent or password
-manager.
+manager, keeping this data in RAM until the user clears it out.
 
-Regd can keep data temporarily or it can store data on disk and read
-it back automatically during startup.
+Regd can keep data temporarily or it can permanently store data on disk 
+and load it automatically during startup.
+
+Use cases of regd include:
+
+- password agent (or more generally secure data cache) for providing other prorgrams 
+and scripts with data which is read from encrypted file (or loaded with some other 
+secure method), is always kept in RAM and is never stored in files in unencrypted form.
+
+- interprocess communication agent for exchanging data between any number of programs,
+where one program can write data and others read, or many write and one reads, or
+many write and many read, etc.
+
+- centralized persistent storage of user scripts' configuration settings, data, etc.
+With regd scripts and programs can persistently store and retrieve any data with 
+just one command. E.g. in a bash script this can look as follows:
+
+`confSetting="$(regd --get-pers "someScript: someSetting")"`  
+`someData="abcde"`  
+`regd --set-pers "someScript: someData = ${someData}"`
+
+- centralized settings or data exchange server running on an IP address in a network,
+where other machines in the network can store and retrieve data in the same way
+as was shown for the local usage. (In this use case the security of data exchange
+within network should be ensured through the appropriate configuration of access
+levels within network with `iptables`, etc.)
 
 ## Examples of using regd
 
@@ -37,52 +61,79 @@ $ regd --check
 $ regd --stop
 ```
 
-Via sockets (with a helper function):
+Via sockets:
 
 ```
 # Python 
 
-someVar = regdHelperFunc( cmd="get", data="SOME APP: some setting" )
+def regdcmd(cmd, data):
+	# This function connects to the regd socket, sends it the command 
+	# and receives the response.
 
+var1 = regdcmd( cmd="get", data="SOME APP: some setting" )
+var2 = regdcmd( cmd="get", data="ANOTHER APP: some data" )
+
+var3 = "abcde"
+regdcmd( cmd="set", data=var3 )
 ```
 
-The stored data may include confidential data such as passwords, etc., 
-which can be read directly from an encrypted file upon prompting the user
-for the password. This may help to avoid storing non-encrypted confidential 
-data in program and script source files.
+Using regd as a password agent from a script:
+
+```
+#!/usr/bin/bash
+
+# In this script we get from regd a user password and use it for
+# mounting a cifs partition on a remote machine.
+
+passw="$(regd --get-sec userPass)"
+
+if [[ ! "${passw}" =~ ^1.+ ]]; then
+	echo "Couldn't read the password."
+	exit -1
+
+passw="${passw:1}"
+mount.cifs //remote.host/backup "/mnt/backup" -o username=john,password="${passw}",rw
+```
 
 Install
 -------
 
-To install safestor:
+To install *regd*, download the latest release from [here](https://github.com/nbdsp/regd/releases),
+and then in the command line run:
 
-	$ pip install safestor.py
+	$ python setup.py install
 
-This will add 'safestor.py' inside the local python bin folder.
+This will install *regd* to the local python packages.
+After installing *regd* can be started either manually:
+
+```
+# For running as a local daemon
+$ regd --start
+```
 
 
-  Confidential data file
+  Secure tokens file
 ---------------------------
 
-Private data is stored in a gpg encrypted file, which is created
+Secure tokens can stored in a gpg encrypted file, which is created
 by encrypting a usual text file as follows:
 
 	gpg --encrypt --recipient "<key description>" -o securefile.gpg textdata.txt
 
-For creating encrypted data file, a safestor user needs to have a private
+For creating encrypted data file, a regd user needs to have a private
 encryption key. If a user doesn't have such a key, it can be generated 
 with command:
 
 	gpg --gen-key
 
-Unencrypted text file, from which encrypted file is created, should
-contain data in the `<key=value>` pairs, where 'key' is the name or aliase
-of the confidential text, and 'value' is the confidential text itself:
+An unencrypted text file, from which the encrypted file is created, should
+contain data in `<name=value>` pairs, where 'name' is the name or aliase
+of the secure text (e.g. "myDBPassword"), and 'value' is the secure text itself:
 	
-`<item_name>=<item_text>`
+`myDBPassword=ys7 5R-e%wi,P`
 
-The line with key/value pair should not contain whitespaces that are not 
-part of the key or value. For example:
+Lines with name/value pairs should not contain whitespaces that are not 
+parts of the key or value. For example:
 
 ------- File privateinfo.txt -------
 ```
@@ -90,80 +141,6 @@ myPostgresDBPass=h&gsjY68jslD
 myEmailPass=passphrase with spaces
 ```
 -------- End of file ----------------
-
-
-   Using safestor
----------------------
-
-Information in the encrypted file can be obtained from within other 
-programs by calling safestor with the name of the required data and reading
-the decrypted data from the stdout output of safestor. 
-
-Request to safestor for data is done by running the command:
-
-	safestor <item_name>
-
-For example:
-
------- File bashscript1.sh --------- 	
-```shell
-#!/usr/bin/bash
-
-MYDBPASS=$(safestor.py MyPostgresDB 2>/dev/null)
-
-if [[ -z "${MYDBPASS}" ]]; then
-	echo Cannot get auth info. Exiting.
-	exit -1
-fi
-```
------------ End of file -------------
-
-Similar calls can be made from programs and scripts in any other programming
-language.
-
-( Note, that stderr stream is used by safestor for outputting error 
-messages, so the stderr output should be distinguished from the 
-stdout output, which contains the required data. )
-
-
-   Running modes
---------------------
-
-Safestor can work either as constantly running server or in individual runs, 
-when each query to safestor is served in a separate program run, where 
-safestor exits after responding the query without starting the server. 
-
-Safestor can be started as server from a script or command line with:
-
-	safestor --start
-	
-To run from command line in background, `&` should be added:
-
-	safestor --start &
-	
-Safestor server can be stopped with:
-
-	safestor --stop
-
-When running as server, safestor stores the data in computer's memory so the 
-user doesn't need to enter the password multiple times.  When the server stops, 
-all cached data is automatically erased from the computer's memory.
-
-
-   Configuration
----------------------
-
-Encrypted data file name can be either default:
-
-`$HOME/.sec/safestor.gpg` 
-
-or can be specified in the configuration file:
-
-`$HOME/.config/safestor/safestor.conf`
-
-in the form:
-
-`encfile = /path/to/encrypted/file`
 
 
    Issues

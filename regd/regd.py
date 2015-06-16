@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 06:47:43"
+__lastedited__ = "2015-06-16 08:12:16"
 
-VERSION = ( 0, 4, 2, 3 )
+VERSION = ( 0, 4, 2, 4 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -68,8 +68,12 @@ GET_TOKEN_PERS		 = "get_pers"
 GET_TOKEN_SEC		 = "get_sec"
 REMOVE_TOKEN		 = "remove"
 REMOVE_TOKEN_PERS	 = "remove_pers"
+REMOVE_TOKEN_SEC	 = "remove_sec"
 REMOVE_SECTION		 = "remove_section"
 REMOVE_SECTION_PERS	 = "remove_section_pers"
+REMOVE_SECTION_SEC	 = "remove_section_sec"
+CLEAR_SEC			 = "clear_sec"
+CLEAR_SESSION		 = "clear_session"
 
 # Logger
 log = None
@@ -458,6 +462,8 @@ def startServer():
 							data = data[( pl + itemmarksize ):]
 
 						add_token( perstokens, data )
+						with open( PERSFILE, "w" ) as f:
+							perstokens.write( f, True )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
@@ -507,6 +513,8 @@ def startServer():
 					try:
 						if os.path.exists( data ):
 							perstokens.read( data )
+							with open( PERSFILE, "w" ) as f:
+								perstokens.write( f, True )
 							resp = "1"
 						else:
 							resp = "{0}File not found: {1}".format( valueNotExists, data )
@@ -542,6 +550,8 @@ def startServer():
 				elif cmd == REMOVE_TOKEN_PERS:
 					try:
 						remove_token( perstokens, data )
+						with open( PERSFILE, "w" ) as f:
+							perstokens.write( f, True )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
@@ -549,10 +559,35 @@ def startServer():
 				elif cmd == REMOVE_SECTION_PERS:
 					try:
 						remove_section( perstokens, data )
+						with open( PERSFILE, "w" ) as f:
+							perstokens.write( f, True )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
+						
+				elif cmd == REMOVE_TOKEN_SEC:
+					try:
+						remove_token( sectokens, data )
+						resp = "1"
+					except ISException as e:
+						resp = str( e )
+						
+				elif cmd == REMOVE_SECTION_SEC:
+					try:
+						remove_section( sectokens, data )
+						resp = "1"
+					except ISException as e:
+						resp = str( e )
+						
+				elif cmd == CLEAR_SEC:
+					sectokens = ConfigParser()
+					resp = "1"
 
+				elif cmd == CLEAR_SESSION:
+					sectokens = ConfigParser()
+					tokens = ConfigParser()
+					resp = "1"
+						
 			else:
 				try:
 					resp = "1" + get_token( tokens, data )
@@ -629,8 +664,12 @@ def main():
 	group.add_argument( '--' + LOAD_FILE_SEC.replace( '_', '-' ), action = Item, metavar = "FILENAME", nargs = '?', help = 'Load tokens from encrypted file' )
 	group.add_argument( '--' + REMOVE_TOKEN, action = Item, metavar = "NAME", help = 'Remove a token' )
 	group.add_argument( '--' + REMOVE_TOKEN_PERS.replace( '_', '-' ), action = Item, metavar = "NAME", help = 'Remove a persistent token' )
+	group.add_argument( '--' + REMOVE_TOKEN_SEC.replace( '_', '-' ), action = Item, metavar = "NAME", help = 'Remove a secure token' )
 	group.add_argument( '--' + REMOVE_SECTION.replace( '_', '-' ), action = Item, metavar = "SECTION", help = 'Remove a section' )
 	group.add_argument( '--' + REMOVE_SECTION_PERS.replace( '_', '-' ), action = Item, metavar = "SECTION", help = 'Remove a persistent section' )
+	group.add_argument( '--' + REMOVE_SECTION_SEC.replace( '_', '-' ), action = Item, metavar = "SECTION", help = 'Remove a secure section' )
+	group.add_argument( '--' + CLEAR_SEC.replace( '_', '-' ), action = ActionCmd, help = 'Remove all secure tokens' )
+	group.add_argument( '--' + CLEAR_SESSION.replace( '_', '-' ), action = ActionCmd, help = 'Remove all session and secure tokens' )
 
 	args = parser.parse_args()
 
