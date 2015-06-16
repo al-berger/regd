@@ -12,15 +12,16 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 03:03:02"
+__lastedited__ = "2015-06-16 05:35:11"
 
-VERSION = ( 0, 4, 2 )
-__version__ = '.'.join( map( str, VERSION[0:] ) )
+VERSION = ( 0, 4, 2, 2 )
+__version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
 __author_email__ = 'nbdspcl@gmail.com'
 __homepage__ = 'https://github.com/nbdsp/regd'
 __license__ = 'GPL'
+rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
 import sys, os, socket, signal, subprocess, logging, argparse, time, regex, pwd
 from configparser import ConfigParser
