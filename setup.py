@@ -35,7 +35,7 @@ setup(
     url                 = regd.__homepage__,
     license             = regd.__license__,
     packages            = ['regd'],
-    scripts             = ['regd/regd.py'],
+    scripts             = ['data/regd'],
     classifiers         = classifiers,
     keywords            = "registry settings configuration manager daemon cache"
 )
