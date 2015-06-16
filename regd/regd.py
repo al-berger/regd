@@ -12,11 +12,11 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 01:53:48"
+__lastedited__ = "2015-06-16 03:03:02"
 
-VERSION = ( 0, 4 )
-__version__ = '.'.join( map( str, VERSION[0:2] ) )
-__description__ = 'Registry daemon and secure data cache'
+VERSION = ( 0, 4, 2 )
+__version__ = '.'.join( map( str, VERSION[0:] ) )
+__description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
 __author_email__ = 'nbdspcl@gmail.com'
 __homepage__ = 'https://github.com/nbdsp/regd'
