@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-16 13:17:58"
+__lastedited__ = "2015-06-17 04:55:44"
 
-VERSION = ( 0, 4, 2, 5 )
+VERSION = ( 0, 4, 3, 6 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -23,7 +23,7 @@ __homepage__ = 'https://github.com/nbdsp/regd'
 __license__ = 'GPL'
 rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
-import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd
+import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd, struct
 from configparser import ConfigParser
 import __main__
 
@@ -145,18 +145,43 @@ def read_sec_file( filename, cmd, tok ):
 			tok.add_section( curSect )
 		else:
 			add_token( tok, curSect + ":" + s )
+			
+def escapedpart( tok, sep ):
+	if not tok:
+		return (None, None)
+	idx = -1
+	start = 1
+	while True:
+		idx = tok.find( sep, start )
+		if ( idx == -1 ) or ( tok[idx-1] is not '\\'):
+			break
+		start = idx + 1
+	
+	if idx == -1: 
+		tok = tok.replace("\\"+sep, sep)
+		return None, tok
+	
+	l, r = ( tok[0:idx], tok[(idx+1):] )
+	l = l.replace("\\"+sep, sep)
+	r = r.replace("\\"+sep, sep)
+		
+	return (l, r) 	
 
 def add_token( cp, tok, noOverwrite = False ):
-	sec, _, opt = tok.rpartition( ":" )
-	sec = sec.strip()
-	opt = opt.strip()
+	log.debug( "tok: {0}".format( tok ) )
+	sec, opt = escapedpart( tok, ":" )
+	if sec: sec = sec.strip()
+	if opt: opt = opt.strip()
+	log.debug( "section: {0}, option: {1}".format( sec, opt ) )
+	
+	key, val = escapedpart(opt, "=")
+	if key: key = key.strip()
+	if val: val = val.strip()
 
-	if not opt or opt.find( "=" ) == -1:
+	log.debug( "name: {0}, value: {1}".format( key, val ) )
+	
+	if not val:
 		raise ISException( unknownDataFormat, tok )
-
-	key, _, val = opt.partition( "=" )
-	key = key.strip()
-	val = val.strip()
 
 	if not sec:
 		sec = GLSEC
@@ -238,6 +263,7 @@ def contactServer( item, host=None, port=None ):
 		sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
 	else:
 		sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
+		sock.setsockopt(socket.SOL_SOCKET, socket.SO_PASSCRED, 1)
 		
 	if item.find( "_sec " ) != -1 or item.endswith( "_sec" ):
 		sock.settimeout( 30 )
@@ -357,6 +383,7 @@ def startServer():
 		else:
 			sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
 			sock.bind( server_address )
+			
 	except OSError as e:
 		print( "Cannot create or bind socket: ", e )
 		return -1
@@ -365,7 +392,13 @@ def startServer():
 
 	while True:
 		connection, client_address = sock.accept()
-		log.debug( "regd: Server: new connection" )
+		log.debug( "Server: new connection: client address: %s" % ( client_address ) )
+		if not host:
+			creds = connection.getsockopt( socket.SOL_SOCKET, socket.SO_PEERCRED, 
+									struct.calcsize("3i"))
+			pid, uid, gid = struct.unpack("3i", creds)
+			log.debug("pid: {0}; uid: {1}; gid: {2}".format( pid, uid, gid ) )
+		print( "Connection : {0}".format( connection.fileno() ) )
 		connection.settimeout( 3 )
 		data = bytearray()
 		try:
@@ -376,7 +409,7 @@ def startServer():
 					break
 
 			data = data[:-eodsize].decode( 'utf-8' )
-			log.debug( "regd: Server: data received: {0}".format( data ) )
+			log.debug( "Server: data received: {0}".format( data ) )
 
 			# Three major response codes:
 			# 0 - program error
@@ -654,6 +687,7 @@ def main(*kwargs):
 	parser.add_argument( '--user', help = 'User name of the server process owner.' )
 	parser.add_argument( '--host', help = 'Run the server on an Internet socket with the specified hostname.' )
 	parser.add_argument( '--port', help = 'Run the server on an Internet socket with the specified port.' )
+	parser.add_argument( '--access', help = 'Access level for the server: private, public_read or public.' )
 	group.add_argument( '--' + START_SERVER, action = "store_true", help = 'Start server' )
 	group.add_argument( '--' + STOP_SERVER, action = "store_true", help = 'Stop server' )
 	group.add_argument( '--' + RESTART_SERVER, action = "store_true", help = 'Restart server' )
@@ -689,6 +723,8 @@ def main(*kwargs):
 	username = args.user
 	if not username:
 		username = os.getenv( 'LOGNAME' )
+		
+	userid = pwd.getpwnam( username ).pw_uid
 
 	if username:
 		homedir = os.path.expanduser( '~' + username )
@@ -710,8 +746,9 @@ def main(*kwargs):
 	
 	if not host:
 		'''Server runs on a Unix file socket.'''
-		sockdir = '/var/run/user/{0}'.format( pwd.getpwnam( username ).pw_uid )
+		sockdir = '/var/run/user/{0}'.format( userid )
 		server_address = '{0}/.{1}'.format( sockdir, sockname )
+		#server_address = '\0qqqwww'
 	
 	# Setting up logging
 
