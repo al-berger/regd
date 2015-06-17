@@ -132,7 +132,7 @@ $ regd --user john --get someName
   Secure tokens file
 ---------------------------
 
-Secure tokens can stored in a gpg encrypted file, which is created
+Secure tokens can be stored in a gpg encrypted file, which is created
 by encrypting a usual text file as follows:
 
 	gpg --encrypt --recipient "<key description>" -o securefile.gpg textdata.txt

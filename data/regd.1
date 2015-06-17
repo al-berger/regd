@@ -12,12 +12,14 @@ regd <\fICOMMAND\fP> [\fIARGUMENTS\fP]
 Stores information in the form of name/value pairs (tokens)
 and returns it in response to commands.
 
+.SS Tokens
 .PP
-Token (name and value) is a pair of arbitrary Unicode strings
-separated by '=' character. Name string therefore cannot
-contain '=' character.
-
-.PP
+In \fBregd\fP documentation the term \fItoken\fP designates the basic unit
+of information storage. A token consists of a token identifier (\fIname\fP)
+and data (\fIvalue\fP), which is associated with this name. Both name and
+value are Unicode strings and can hold arbitrary Unicode values of
+arbitrary length. ( However, see the NOTES section below about
+special cases when a name contains '=', '\\' or ':' characters.)
 The value string is retrieved with a command using the name
 string as the token identificator.
 
@@ -27,7 +29,8 @@ optional section name, which is the part of the name up to the
 first colon. E.g.:
 "SECTION NAME : token name".
 If the section name is not present in the token name, the token
-is stored in the section named 'general'.
+is stored in the section named 'general'. If the section name contains
+colons within itself, they must be prepended with backslashes. E.g.
 
 .PP
 A token can be one of two types regarding its lifetime:
@@ -38,29 +41,33 @@ Persistent tokens are stored in a disk file, automatically
 loaded in the registry on each program start and exist until
 they are explicitly removed with a removal command.
 
+.SS Secure tokens
 .PP
-From encrypted files secure tokens can be loaded. Secure tokens
-are always session tokens (they are never stored on disk).
-Also secure tokens are not included in the print output of
-listing commands.
+Secure tokens are tokens that are loaded can be loaded. Secure tokens
+are always session tokens: they are never stored on disk and they
+are discarded fron the RAM when the server is stopped or when they
+are removed with a removing command. Also secure tokens are not
+included in the print output of listing commands.
 
 .SH COMMANDS
+.SS Starting, stopping server
 .SS \fB\-\-start\fP
 .PP
-Start regd. This command can be used with command line options: \fB\-\-host\fP, \fB\-\-port\fP, \fB\-\-user\fP, \fB\-\-log\-level\fP (see below). To run regd on an Internet address, the host name and port number should be specified in command line options \fB\-\-host\fP and \fB\-\-port\fP respectively along with \fB\-\-start\fP option. If "\-\-host" and "\-\-port" are not specified, regd will run on a Unix file socket.
+Start \fBregd\fP. This command can be used with command line options: \fB\-\-host\fP, \fB\-\-port\fP, \fB\-\-user\fP, \fB\-\-log\-level\fP (see below). To run \fBregd\fP on an Internet address, the host name and port number should be specified in the command line options \fB\-\-host\fP and \fB\-\-port\fP respectively along with \fB\-\-start\fP option. If "\-\-host" and "\-\-port" are not specified, \fBregd\fP will run on a Unix file socket.
 
 .SS \-\-stop
 .PP
-Stop regd.
+Stop \fBregd\fP. All session tokens are discarded.
 
 .SS \-\-restart
 .PP
-Restart regd.
+Restart \fBregd\fP. All session tokens are discarded.
 
 .SS \-\-check
 .PP
-Check if the regd is running.
+Check if the \fBregd\fP is running.
 
+.SS Adding tokens to the server
 .SS \-\-add <\fIname=value\fP>
 .PP
 Add a session token. If a token with such name already exists, the token value is not updated.
@@ -77,30 +84,6 @@ Same as \fB\-\-add\fP, but the token is added to the persistent tokens.
 .PP
 Same as \fB\-\-set\fP, but the token is added to the persistent tokens.
 
-.SS \-\-get <\fIname\fP>
-.PP
-Get the value of a session token.
-
-.SS \-\-get\-pers <\fIname\fP>
-.PP
-Get the value of a persistent token.
-
-.SS \-\-get\-sec <\fIname\fP>
-.PP
-Get the value of a secure token.
-
-.SS \-\-list\-all
-.PP
-Print all the session tokens and persistent tokens. (Secure tokens are not listed.)
-
-.SS \-\-list\-session [\fIsection1\fP[ \fIsection2\fP...]]
-.PP
-Print the specified sections of session tokens or all sections if sections are not specified.
-
-.SS \-\-list\-pers [\fIsection1\fP[ \fIsection2\fP...]]
-.PP
-Print the specified sections of persistent tokens or all sections if sections are not specified.
-
 .SS \-\-load <\fIname1=value1\fP>[\fIname2=value2\fP...]
 .PP
 Add multiple session tokens. Each name/value pair needs to be separated from the previous one with the token separator. The default token separator is a three\-character sequence: \fI@#$\fP . With the default separator multiple tokens are specified like this:
@@ -114,7 +97,7 @@ than session ones.
 
 .SS \-\-load\-file <\fIfilename\fP>
 .PP
-Add session tokens from the file. \fIfilename\fP \- the path
+Add session tokens from a file. \fIfilename\fP \- the path
 of the file with tokens.
 
 .SS \-\-load\-file\-pers <\fIfilename\fP>
@@ -149,7 +132,70 @@ a disk and always remain in RAM.
 The command for reading encrypted files can be changed and
 specified in the \fIregd.conf\fP.
 
-.SH COMMAND LINE START OPTIONS
+.SS Getting tokens from the server
+.SS \-\-get <\fIname\fP>
+.PP
+Get the value of a session token.
+
+.SS \-\-get\-pers <\fIname\fP>
+.PP
+Get the value of a persistent token.
+
+.SS \-\-get\-sec <\fIname\fP>
+.PP
+Get the value of a secure token.
+
+.SS Removing tokens from the server
+.SS \-\-remove <\fIname\fP>
+.PP
+Remove a session token
+
+.SS \-\-remove\-pers <\fIname\fP>
+.PP
+Remove a persistent token
+
+.SS \-\-remove\-sec <\fIname\fP>
+.PP
+Remove a secure token.
+
+.SS \-\-remove\-section <\fIsection\fP>
+.PP
+Remove a section in session tokens.
+
+.SS \-\-remove\-section\-pers <\fIsection\fP>
+.PP
+Remove a section in persistent tokens.
+
+.SS \-\-remove\-section\-sec <\fIsection\fP>
+.PP
+Remove a section in secure tokens.
+
+.SS \-\-clear\-session
+.PP
+Remove all session and secure tokens.
+
+.SS \-\-clear\-sec
+.PP
+Remove all secure tokens.
+
+.SS Listing tokens
+.SS \-\-list\-all
+.PP
+Print all the session tokens and persistent tokens. (Secure tokens are not listed.)
+
+.SS \-\-list\-session [\fIsection1\fP[ \fIsection2\fP...]]
+.PP
+Print the specified sections of session tokens or all sections if sections are not specified.
+
+.SS \-\-list\-pers [\fIsection1\fP[ \fIsection2\fP...]]
+.PP
+Print the specified sections of persistent tokens or all sections if sections are not specified.
+
+.SH COMMAND LINE RUN OPTIONS
+.PP
+All command line run option can be used both when starting a server as well as when invoking
+regd as a client (for sending commands to the running server).
+
 .SS \-\-log\-level <\fIlog\_level\fP>
 .PP
 This command line start option sets the level of the log
@@ -163,6 +209,7 @@ program to produce output.
 The user name of the effective owner of the server process
 which the command is sent to.
 
+.SS \-\-host
 .SH CONFIGURATION FILE
 .PP
 The configuration file \fIregd.conf\fP is read on the program
@@ -174,6 +221,39 @@ system\-wide options can be overriden with user\-level
 .PP
 Options that can be set in \fIregd.conf\fP are described in
 \fI/etc/regd/conf.regd\fP file.
+
+.SH NOTES
+.PP
+If a token contains any of three characters: '\\', ':' or '=',
+these cases need special handling: prepending these characters with
+backslashes ('\\') before using in a command.
+
+.PP
+1) If the section contain ':' characters, each of these characters must be
+prepended with '\\' (backslash) character.
+
+.PP
+2) If the name contain '=' characters, these characters
+must be prepended with '\\' characters.
+
+.PP
+3) If a token (the section or name or value ) contain backslashes, they
+must be prepended with another backslash.
+
+.PP
+E.g., if a token has a section "S:S\\S=", name "n:n\\n=" and value "v:v\\v=",
+then in a command string, where tokens have the form "section : name = value",
+such a token must be modified as follows:
+
+.PP
+regd \-\-add "S:S\\S= : n:n\\n\\= = v:v\\v="
+
+.PP
+That is, in sections two special characters must be backslashed: ':' and '\\',
+in names '=' and '\\' must be backslashed, and in values only '\\' must
+be backslashed. The section is separated from the name with
+the first unbackslashed ":" and the name is separated from the value with the
+first unbackslashed "=".
 
 .SH AUTHOR
 .PP
