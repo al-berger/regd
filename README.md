@@ -12,6 +12,13 @@ regd an encrypted file with confidential data (e.g. database
 password) and regd will function as a keyring-agent or password
 manager, keeping this data in RAM until the user clears it out.
 
+On a system several users can have their own regd server instances and one
+user can have several regd server instances with different names and access
+permissions.
+
+Access permissions can be defined for a regd server instance. All data in a
+regd server instance can be _private_, _public-readable_, or _public_.
+
 Regd can keep data temporarily or it can permanently store data on disk 
 and load it automatically during startup.
 
@@ -38,6 +45,8 @@ where other machines in the network can store and retrieve data in the same way
 as was shown for the local usage. (In this use case the security of data exchange
 within network should be ensured through the appropriate configuration of access
 levels within network with `iptables`, etc.)
+
+Regd manual can be found [here](https://github.com/nbdsp/regd/blob/master/data/MANUAL.md)
 
 ## Examples of using regd
 
