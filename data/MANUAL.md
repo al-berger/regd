@@ -28,23 +28,114 @@ via command line with another __regd__ instance invoked as a client, or
 via sockets, if the connection to __regd__ server is made from another
 or program.
 
-### Invoking regd  
+Each user can have a separate regd server running, containig her own 
+information. If needed, one user can have several regd server instances
+running with different server names.
+
+Each regd server running on a file socket can have one of three permission 
+access level for all its data: _private_, _public-read_ or _public_.
+
+### Starting regd server  
 
 When __regd__ server is started (invoked with the __--start__ option), 
-it must be provided with the address through which it will be communicating. 
+it must be provided with three configuration options (all of them have 
+default values): server address, access level and server name.
 
-If __regd__ is started on an IP address, additional command line options
-must include __--host__ and __--port__. 
+_Server address_  
 
-If __regd__ is started on a file socket (which is the default option),
-it may be provided through the __--user__ command line option with a valid 
-system user name for specifying the server address: the socket file is
-created in the _/var/run/user/$USERID/_ directory, to which the invoking
-user must have write access. If the user name is not specified with __--user__
-option, the file socket is created using the current user ID.
+The server address through which it can be contacted from other process. 
 
-On a system several __regd__ server instances can simultaneously run (each keeping
-information for a separate user). If a user A wants to send a command to 
+If __regd__ is started on an IP address,  the address must be specified with
+__--host__ and __--port__ command line options (see below). 
+
+If __regd__ is started on a file socket (which is the default option), its 
+address is a server name.  
+
+_Server name_  
+
+If one user have more than one _regd_ server running on _file sockets_, they need
+to be distinguished via different server instances names. The server name is
+assigned to a _regd_ server instance on startup with __--server-name__ command
+line option. The server name can have length up to 32 characters. Names must be 
+unique within one user account. Different users can have identically named _regd_
+servers.
+
+If a user has only one _regd_ server instance running on a file socket, then this
+server may or may not be provided with a name. _regd_ servers running on IP
+addresses don't have names and __--server-name__ option is ignored on their startup.  
+
+_Access level_  
+
+A _regd_ server running on a UNIX file socket has a permission level for accessing 
+and manipulating its data. A single permission level applies to all the data kept 
+in session and persistent tokens on the server. Secure tokens remain private at all 
+permission levels. Permission level can be one of three values:
+- private : Only user who started the server instance (server process owner) can send 
+commands to the server. All commands from other users are denied. This is the default 
+level.
+- public-read : The data on the server except of secure tokens is "world-readable". 
+The server process owner have full access to the server. From other users the following 
+commands are executed: __--check__, __--list-all__, __--list-pers__, __--list-sessions__, 
+__--get__, __--get-pers__. All other commands from other users are denied.
+- public : The data on the server except of secure tokens is "world-readable" and 
+"world-writable". All users having access to the machine's filesystem can read, add,
+modify and remove session and persistent tokens (secure tokens are not accesible to
+users other than the server process owner). 
+
+The following commands can be executed only by the server process owner at all permission
+levels: __--start__, __--stop__, __--restart__, __--get-sec__, __--load-file-sec__, 
+__--remove-sec__, __--remove-section-sec__, __--clear-sec__.
+
+### Communicating with regd server  
+
+Running _regd_ server keep listening for incoming commands on the address on
+which it has been started (file socket or IP address). It can be contacted only
+through this address. The socket/IP address can be used directly by other programs
+to send commands to _regd_. Also _regd_ itself can be used in the client mode
+to send commands to _regd_.
+
+To send a command to a _regd_ server, _regd_ in the client mode is invoked with
+following general syntax (items in square brackets are optional):
+
+__regd__ [<_--host_> <_--port_> | <_--server-name_>] [_log-level_] _command_
+
+A server running on an IP address always must be contacted with the __--host__
+and __--port__ present on the command line:
+
+$ regd --host some.hostname --port NNNN --get "someItem"
+
+A server running on a UNIX file socket must be contacted through it's server name
+(if it was started with a __--server-name__ option) and with the username of the
+server process owner if the server was started by a user other than the user 
+sending it a command. User name is prefixed to the server name with '@' symbol:  
+
+alice@servername
+
+If the server was started without server name, then only the user name with '@' must be
+used as the server address. For example, if a server was started by user 'alice' without
+the server name, as follows:
+
+$ regd --start --access public-read
+
+then user 'alice' can contact the server as follows:
+
+$ regd --add someItem=someValue
+
+User 'bob' can contact this server as follows:
+
+$ regd --server-name alice@ --get someItem
+
+If the server was started by user 'alice' with the name 'info':
+
+$ regd -- start --server-name info --access public-read
+
+then user 'alice' can contact the server as follows:
+
+$ regd --server-name info --add someItem=someInfo
+
+and user 'bob' can contact the server as follows:
+
+$ regd --server-name alice@info --get someItem
 
 ### Tokens
 
@@ -86,13 +177,20 @@ they are discarded from the RAM when the server is stopped or when they
 are removed with a removing command. Also secure tokens are not 
 included in the print output of listing commands.
 
-### 
 
 ## COMMANDS
 
-### Starting, stopping server  
+### Help and version  
 
-### __--start__
+### --help
+Display short command summary.
+
+### --version
+Display the program version.
+
+### Starting, stopping, checking a server  
+
+### --start
 Start __regd__. This command can be used with command line options: __--host__, __--port__, __--user__, __--log-level__ (see below). To start __regd__ on an Internet address, the command line options __--host__ and __--port__ must contain the host name and port number of that address. If "--host" and "--port" are not specified, __regd__ will run on a Unix file socket as a local daemon.
 
 ### --stop
@@ -212,38 +310,77 @@ Print the specified sections of session tokens or all sections if sections are n
 Print the specified sections of persistent tokens or all sections if sections are not specified.
 
 
-## COMMAND LINE RUN OPTIONS
-All command line run option can be used both when starting a server as well as when invoking
-regd as a client (for sending commands to the running server).
+## COMMAND LINE OPTIONS
+All _regd_ command line options can be used both when starting a server as well as when
+invoking regd as a client (for sending commands to the running server).
 
 ### --log-level <_log_level_>
 This command line start option sets the level of the log
 output. Log level can be one of the following values:
 DEBUG, INFO, WARNING, ERROR, CRITICAL.
 Log level is the type of events which which cause the
-program to produce output.
+program to produce output. Can be used 
 
-### --user <_username_>
-The user name of the effective owner of the server process
-which the command is sent to.
+### --server-name <_server_name_>
+This option applies only to file socket servers. For servers running on an IP address
+it is ignored. 
+_Server mode_ : When starting a server on a file socket, this option assigns server the name 
+which will be used for sending it commands and distinguishing it from other servers of the 
+same user. When starting the first file socket server instance, the server name is optional 
+(if it is omitted, the default name is used). When starting second and following instances, the 
+server name is mandatory.  
+The server name must be unique within one user account. Different users on one machine
+can have identically named servers.  
+The server name can have length up to 32 characters.  
+_Client mode_ : When contacting to a running server, the server name must be specified on the
+command line in following cases:
+- the server command is sent from a guest user (that is from a user account other than the 
+server process owner account). In this case the server name must be prefixed with the server 
+process owner username and '@' character.
+- the server was explicitly assigned a name on startup. In this case the server owner must 
+contact the server using the assigned server name. Guest users must use the prefixed server 
+name, described in the previous section.  
+
+If a server was started without server name, the guest users must use just the username of the
+server owner with '@' appended as the server name.
+Examples:  
+
+# User alice starts two servers: one with the default name 
+# and one with a custom name
+
+$ regd --start --access public-read
+$ regd --start --server-name info --access public-read
+
+# User alice contacts both servers: without the server 
+# name specified, the default name is used
+
+$ regd --add "item1=value1"
+$ regd --server-name info --add "item2=value2"
+
+# User bob contacts these servers:
+
+$ regd --server-name alice@ --get item1
+$ regd --server-name alice@info --get item2
 
 ### --host
-In a starting server command this option specifies the name of the host to which
-the server must be bound:  
+This option applies only to servers running on IP addresses.  
+When starting a server on an IP address, this option specifies the name of the host to 
+which the server must be bound:  
 
-regd --start --host some.hostname --port ####
+regd --start --host some.hostname --port NNNN
 
-In an invoking client command this option specifies the name of the host where the
-server is running:  
+In client mode this option specifies the name of the host where the
+server to which the command must be sent is running:  
 
 regd --host some.host --port NNNN --get "someInfo"
 
 ### --port
-In a starting server command this option specifies the port number on which
-the server must be listening.
+This option applies only to servers running on IP addresses.  
+When starting a server on an IP address, this option specifies the port number on 
+which the server must be listening.  
 
-In an invoking client command this option specifies the port number where the
-server is listening.
+In client mode this option specifies the port where the server to which the command 
+must be sent is listening.  
 
      
 ## CONFIGURATION FILE
@@ -251,8 +388,8 @@ server is listening.
 The configuration file _regd.conf_ is read on the program 
 startup. Options in _regd.conf_ residing in _/etc/regd/_ 
 are system-wide ( applied for all users using regd ). The
-system-wide options can be overriden with user-level 
-_regd.conf_ residing in _~/.config/regd/_.
+system-wide options can be overriden in a user-level 
+_regd.conf_ residing in _~/.config/regd/_ .
 
 Options that can be set in _regd.conf_ are described in
 _/etc/regd/conf.regd_ file.
@@ -288,10 +425,4 @@ first unbackslashed "=".
 
 ## AUTHOR
 
-Albert Berger <nbdspcl@gmail.com>
-
-
-
-
-
-
+Albert Berger <alberger@gmail.com>

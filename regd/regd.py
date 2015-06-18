@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-17 04:55:44"
+__lastedited__ = "2015-06-18 10:15:54"
 
-VERSION = ( 0, 4, 3, 6 )
+VERSION = ( 0, 5, 0, 7 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -33,9 +33,11 @@ EODMARKER = "%^&"
 CMDMARKER = "&&&"
 GLSEC = "global"
 
-server_address = None
-host = None
-port = None
+# Privacy levels
+PL_PRIVATE			= 1
+PL_PUBLIC_READ		= 2
+PL_PUBLIC			= 3
+
 sockname = 'regd.sock'
 homedir = None
 
@@ -68,6 +70,11 @@ REMOVE_SECTION_SEC	 = "remove_section_sec"
 CLEAR_SEC			 = "clear_sec"
 CLEAR_SESSION		 = "clear_session"
 
+pubread_cmds = ( CHECK_SERVER, LIST_TOKENS_ALL, LIST_TOKENS_PERS, LIST_TOKENS_SESSION, 
+			GET_TOKEN, GET_TOKEN_PERS )
+secure_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, GET_TOKEN_SEC, LOAD_FILE_SEC,
+			REMOVE_TOKEN_SEC, REMOVE_SECTION_SEC, CLEAR_SEC)
+
 # Logger
 log = None
 
@@ -93,14 +100,16 @@ unknownDataFormat 	 = 2
 valueNotExists		 = 3
 valueAlreadyExists	 = 4
 operationFailed		 = 5
+permissionDenied	 = 6
 
 errStrings = ["Program error", "Operation successfull", "Unknown data format", "Value doesn't exist", "Value already exists",
-			"Operation failed"]
+			"Operation failed", "Permission denied"]
 
 
 def signal_handler( signal, frame ):
-	if server_address:
-		os.unlink( server_address )
+	global _sockfile
+	if _sockfile:
+		os.unlink( _sockfile )
 	sys.exit( 1 )
 
 def read_conf( cnf ):
@@ -252,10 +261,11 @@ def list_tokens( cp, sec = None ):
 
 	return ret
 
-def contactServer( item, host=None, port=None ):
+def contactServer( item, sockfile=None, host=None, port=None ):
 	'''
 	"Client" function. Performs requests to a running server.
 	'''
+	log.debug("item={0}; sock={1}; host={2}; port={3}".format( item, sockfile, host, port ))
 	if host:
 		if not port:
 			return "0Error: port number is not provided."
@@ -274,10 +284,10 @@ def contactServer( item, host=None, port=None ):
 		if host:
 			sock.connect(( host, int(port) ))
 		else:
-			sock.connect( server_address )
+			sock.connect( sockfile )
 	except OSError as er:
-		resp = "0regd: connectServer: Socket error {0}: {1}\nServer address: {2}".format( 
-												er.errno, er.strerror, server_address )
+		resp = "0regd: connectServer: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
+												er.errno, er.strerror, sockfile, host, port )
 		return resp
 
 	try:
@@ -298,14 +308,14 @@ def contactServer( item, host=None, port=None ):
 
 		return data[:-eodsize].decode( 'utf-8' )
 	except OSError as er:
-		resp = "0regd: contactServer: Socket error {0}: {1}\nServer address: {2}\n".format( 
-												er.errno, er.strerror, server_address )
+		resp = "0regd: contactServer: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
+												er.errno, er.strerror, sockfile, host, port )
 		return resp
 
 
-def startServer():
+def startServer( sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 
-	if server_address and os.path.exists( server_address ):
+	if sockfile and os.path.exists( sockfile ):
 		'''Socket file may remain after an unclean exit. Check if another server is running.'''
 		try:
 			# If the server is restarted, give the previous instance time to exit cleanly.
@@ -328,9 +338,9 @@ def startServer():
 				return 1
 
 		try:
-			os.unlink( server_address )
+			os.unlink( sockfile )
 		except OSError:
-			if os.path.exists( server_address ):
+			if os.path.exists( sockfile ):
 				raise
 			
 	tokens = ConfigParser()
@@ -374,6 +384,7 @@ def startServer():
 	cmdmarksize = len( CMDMARKER )
 	itemmarksize = len( ITEMMARKER )
 	log.info( "Starting server..." )
+	useruid = os.getuid()
 	
 	try:
 		if host:
@@ -382,7 +393,8 @@ def startServer():
 			sock.bind( ( host, int(port) ) )
 		else:
 			sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
-			sock.bind( server_address )
+			sock.bind( sockfile )
+			os.chmod( sockfile, mode=0o777 )
 			
 	except OSError as e:
 		print( "Cannot create or bind socket: ", e )
@@ -398,7 +410,7 @@ def startServer():
 									struct.calcsize("3i"))
 			pid, uid, gid = struct.unpack("3i", creds)
 			log.debug("pid: {0}; uid: {1}; gid: {2}".format( pid, uid, gid ) )
-		print( "Connection : {0}".format( connection.fileno() ) )
+
 		connection.settimeout( 3 )
 		data = bytearray()
 		try:
@@ -411,17 +423,32 @@ def startServer():
 			data = data[:-eodsize].decode( 'utf-8' )
 			log.debug( "Server: data received: {0}".format( data ) )
 
-			# Three major response codes:
+			# Three response classes:
 			# 0 - program error
 			# 1 - success
-			# 2 - operation unsuccessful (e.g. key doesn't exist)
+			# >1 - operation unsuccessful (e.g. key doesn't exist)
 			resp = "0"
 			cmd = ""
-			if data.startswith( CMDMARKER ):
+			perm = False			 
 
+			if data.startswith( CMDMARKER ):
 				data = data[cmdmarksize:]
 				cmd, _, data = data.partition( " " )
+			else:
+				cmd = GET_TOKEN
+				
+			if useruid == uid:
+				perm = True
+			elif cmd not in secure_cmds:
+				if acc == PL_PUBLIC:
+					perm = True
+				elif acc == PL_PUBLIC_READ:
+					if cmd in pubread_cmds:
+						perm = True 
 
+			if not perm:
+				resp = str( ISException( permissionDenied, cmd ) )
+			else:
 				if cmd == STOP_SERVER:
 					resp = "1"
 
@@ -632,12 +659,6 @@ def startServer():
 					tokens = ConfigParser()
 					resp = "1"
 						
-			else:
-				try:
-					resp = "1" + get_token( tokens, data )
-				except ISException as e:
-					resp = str( e )
-
 			resp += EODMARKER
 
 			try:
@@ -648,8 +669,8 @@ def startServer():
 
 			if cmd == STOP_SERVER:
 				log.info( "Stopping server." )
-				if server_address:
-					os.unlink( server_address )
+				if sockfile:
+					os.unlink( sockfile )
 				return 0
 
 		finally:
@@ -657,7 +678,7 @@ def startServer():
 			connection.close()
 
 def main(*kwargs):
-	global homedir, server_address, log, host, port
+	global homedir, log, _sockfile
 
 	# Parsing command line
 
@@ -684,10 +705,11 @@ def main(*kwargs):
 	group = parser.add_mutually_exclusive_group()
 	parser.add_argument( 'token', nargs = '?', help = 'Get a token' )
 	parser.add_argument( '--log-level', default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
-	parser.add_argument( '--user', help = 'User name of the server process owner.' )
+	parser.add_argument( '--server-name', help = 'The name of the server instance.' )
 	parser.add_argument( '--host', help = 'Run the server on an Internet socket with the specified hostname.' )
 	parser.add_argument( '--port', help = 'Run the server on an Internet socket with the specified port.' )
 	parser.add_argument( '--access', help = 'Access level for the server: private, public_read or public.' )
+	group.add_argument( '--version', action='store_true', help = 'Print regd version.' )
 	group.add_argument( '--' + START_SERVER, action = "store_true", help = 'Start server' )
 	group.add_argument( '--' + STOP_SERVER, action = "store_true", help = 'Stop server' )
 	group.add_argument( '--' + RESTART_SERVER, action = "store_true", help = 'Restart server' )
@@ -717,14 +739,43 @@ def main(*kwargs):
 	group.add_argument( '--' + CLEAR_SESSION.replace( '_', '-' ), action = ActionCmd, help = 'Remove all session and secure tokens' )
 
 	args = parser.parse_args(*kwargs)
+	
+	if args.version:
+		print( rversion )
+		return 0
 
-	# Setting up local environment
+	# Setting up credentials
 
-	username = args.user
-	if not username:
-		username = os.getenv( 'LOGNAME' )
+	atuser = None
+	servername = args.server_name
+	
+	if servername:
+		if servername.find( '@' ) != -1:
+			atuser = servername[0:servername.index('@')]
+			servername = servername[(len(atuser) + 1):]
+			
+	if not servername:
+		servername = "0"
+	else:
+		if len( servername ) > 32:
+			print( "Error: the server name must not exceed 32 characters.")
+			return 1
 		
-	userid = pwd.getpwnam( username ).pw_uid
+	username = pwd.getpwuid(os.getuid())[0]
+	userid = os.getuid()
+	acc = PL_PRIVATE
+	if args.access:
+		if args.access == "private":
+			pass
+		elif args.access == "public-read":
+			acc = PL_PUBLIC_READ
+		elif args.access == "public":
+			acc = PL_PUBLIC
+		else:
+			print( "Unknown access mode. Must be: 'private', 'public-read' or 'public'")
+			return 1
+	
+	# Setting up local environment
 
 	if username:
 		homedir = os.path.expanduser( '~' + username )
@@ -745,10 +796,17 @@ def main(*kwargs):
 		return 1
 	
 	if not host:
-		'''Server runs on a Unix file socket.'''
-		sockdir = '/var/run/user/{0}'.format( userid )
-		server_address = '{0}/.{1}'.format( sockdir, sockname )
-		#server_address = '\0qqqwww'
+		'''Server runs on a UNIX domain socket.'''
+		tmpdir = os.getenv("TMPDIR", "/tmp")
+		tmpdir += "/regd-" + rversion
+		if atuser:
+			atuserid = pwd.getpwnam( atuser ).pw_uid
+			sockdir = '{0}/{1}'.format( tmpdir, atuserid )
+		else:
+			sockdir = '{0}/{1}'.format( tmpdir, userid )
+		
+			
+		_sockfile = '{0}/.{1}.{2}'.format( sockdir, servername, sockname )
 	
 	# Setting up logging
 
@@ -767,6 +825,7 @@ def main(*kwargs):
 	if "logfile" in d:
 		logfile = d["logfile"]
 		if not os.path.isfile( logfile ):
+			
 			with open( logfile, 'w' ) as f:
 				f.write( "" )
 
@@ -777,20 +836,25 @@ def main(*kwargs):
 	# Handling command line
 
 	if not args.start:
-		if not host and not os.path.exists( server_address ):
-			log.warning( "Server isn't running." )
+		if not host and not os.path.exists( _sockfile ):
+			log.warning( "Server isn't running on {0}.".format( _sockfile ) )
 			return 1
 
 	if args.start:
-		return startServer()
+		if atuser and userid:
+			log.error( "Server cannot be started with server name containing '@'.")
+			return 1
+		os.makedirs( sockdir, mode=0o777, exist_ok=True )
+		os.chmod( sockdir, mode=0o777 )
+		return startServer( _sockfile, host, port, acc )
 
 	elif args.stop:
-		if contactServer( CMDMARKER + STOP_SERVER, host, port ) != "1":
+		if contactServer( CMDMARKER + STOP_SERVER, _sockfile, host, port ) != "1":
 			log.error( "cmd 'stop': Cannot contact server." )
 			return -1
 
 	elif args.restart:
-		if contactServer( CMDMARKER + STOP_SERVER, host, port ) != "1":
+		if contactServer( CMDMARKER + STOP_SERVER, _sockfile, host, port ) != "1":
 			log.error( "cmd 'restart': Cannot contact server." )
 			return -1
 
@@ -800,10 +864,10 @@ def main(*kwargs):
 
 	elif hasattr( args, 'itemcmd' ):
 		if args.item:
-			res = contactServer( CMDMARKER + args.cmd + " " + args.item, host, port )
+			res = contactServer( CMDMARKER + args.cmd + " " + args.item, _sockfile, host, port )
 		else:
 			'''Default item'''
-			res = contactServer( CMDMARKER + args.cmd, host, port )
+			res = contactServer( CMDMARKER + args.cmd, _sockfile, host, port )
 		if res[0] != '1':
 			if args.cmd.startswith( "get" ):
 				print( "0", res )
@@ -816,7 +880,7 @@ def main(*kwargs):
 		print( res )
 
 	elif hasattr( args, "actioncmd" ):
-		res = contactServer( CMDMARKER + args.cmd, host, port )
+		res = contactServer( CMDMARKER + args.cmd, _sockfile, host, port )
 		if res[0] != '1':
 			log.error( "actioncmd: Cannot contact server." )
 			log.debug( res )
