@@ -53,11 +53,11 @@
 # logfile = ""
 
 
-# Persistent storage file
+# Persistent data directory
 # -----------------------
-# A file where persistent tokens are stored. If this option is not 
-# set or the file doesn't exist, then persistent tokens are not enabled 
-# and commands for getting and setting persistent tokens fail.
+# A directory where files with persistent tokens are stored. If this 
+# option is not set or the directory doesn't exist, then the persistent tokens 
+# are not enabled and commands for getting and setting persistent tokens will fail.
 
-# persfile = ~/.config/regd/persistent
+# datadir = ~/.config/regd/data
  

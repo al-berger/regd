@@ -30,7 +30,8 @@ or program.
 
 Each user can have a separate regd server running, containig her own 
 information. If needed, one user can have several regd server instances
-running with different server names.
+running with different server names. Each server instance has its own
+persistent and temporary storage.
 
 Each regd server running on a file socket can have one of three permission 
 access level for all its data: _private_, _public-read_ or _public_.
@@ -38,8 +39,8 @@ access level for all its data: _private_, _public-read_ or _public_.
 ### Starting regd server  
 
 When __regd__ server is started (invoked with the __--start__ option), 
-it must be provided with three configuration options (all of them have 
-default values): server address, access level and server name.
+it must be provided with four configuration options (all of them have 
+default values): server address, access level, server name and data file.
 
 _Server address_  
 
@@ -69,7 +70,8 @@ _Access level_
 A _regd_ server running on a UNIX file socket has a permission level for accessing 
 and manipulating its data. A single permission level applies to all the data kept 
 in session and persistent tokens on the server. Secure tokens remain private at all 
-permission levels. Permission level can be one of three values:
+permission levels. Permission level is set on server startup with __--access__ 
+option and can be one of three values:
 - private : Only user who started the server instance (server process owner) can send 
 commands to the server. All commands from other users are denied. This is the default 
 level.
@@ -82,9 +84,26 @@ __--get__, __--get-pers__. All other commands from other users are denied.
 modify and remove session and persistent tokens (secure tokens are not accesible to
 users other than the server process owner). 
 
+If __--access__ option is not present at server startup, then the server permission level 
+is set as 'private' by default.
+
 The following commands can be executed only by the server process owner at all permission
 levels: __--start__, __--stop__, __--restart__, __--get-sec__, __--load-file-sec__, 
 __--remove-sec__, __--remove-section-sec__, __--clear-sec__.
+
+_Data file_  
+
+Each server instance by default has its own persistent storage: data file from which
+persistent tokens are read startup and to which they are saved back if new tokens are
+added, or existing tokens are modified or removed. The default name of the data file is
+automatically composed out of three parts:
+
+1. Directory: the _regd_ data directory: the default one or which is defined in _regd.conf_. 
+2. File: the server name for servers on file sockets or "$host.$port" for servers on IP
+addresses.
+3. Extension: ".data" file extension
+
+
 
 ### Communicating with regd server  
 
@@ -381,6 +400,10 @@ which the server must be listening.
 
 In client mode this option specifies the port where the server to which the command 
 must be sent is listening.  
+
+### --datafile
+The pathname of the file from which the server instance will read persistent tokens
+and to which they will be stored. 
 
      
 ## CONFIGURATION FILE
