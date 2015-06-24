@@ -34,7 +34,8 @@ setup(
     author_email        = regd.__author_email__,
     url                 = regd.__homepage__,
     license             = regd.__license__,
-    packages            = ['regd'],
+    packages            = ['regd', 'tests'],
+    #package_data		= {'tests': ['data/test.conf']},
     scripts             = ['data/regd'],
     classifiers         = classifiers,
     keywords            = "registry settings configuration manager daemon cache"

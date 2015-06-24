@@ -47,17 +47,29 @@
 
 # Log file
 # --------
-# If a log file is specified, then regd will write error messages
-# in this file in addition to printing them to standard output.
+# If this option contains a valid file pathname, then regd will write error and
+# information messages to this file in addition to printing them to standard output.
 
 # logfile = ""
 
 
 # Persistent data directory
-# -----------------------
+# -------------------------
 # A directory where files with persistent tokens are stored. If this 
 # option is not set or the directory doesn't exist, then the persistent tokens 
 # are not enabled and commands for getting and setting persistent tokens will fail.
 
 # datadir = ~/.config/regd/data
+ 
+ 
+ # Trusted users
+ #--------------
+ # The list of account names of users who are granted with 'private' permission level 
+ # to all regd servers started from this user account. (These users can execute the full 
+ # set of commands, including full access to secure tokens, on regd servers of this 
+ # accout).
+ # The names must be space separated. If the list takes more than one line, then the second
+ # and following lines must be indented with a tab or with four spaces.
+ 
+ # trusted_users = 
  
