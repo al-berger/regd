@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-19 03:33:47"
+__lastedited__ = "2015-06-24 13:19:37"
 
 VERSION = ( 0, 5, 0, 7 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
@@ -24,12 +24,13 @@ __license__ = 'GPL'
 rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
 import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd, struct
+from datetime import datetime
 from configparser import ConfigParser
 import fcntl, __main__  # @UnresolvedImport
 
 APPNAME = "regd"
 THISFILE = os.path.basename( __file__ )
-EODMARKER = "%^&"
+EODMARKER = "^&%"
 CMDMARKER = "&&&"
 GLSEC = "global"
 
@@ -41,13 +42,16 @@ PL_PUBLIC			= 3
 sockname = 'regd.sock'
 homedir = None
 data_fd = None
+confdir = None
 
 # Commands
 START_SERVER		 = "start"
 STOP_SERVER			 = "stop"
 RESTART_SERVER		 = "restart"
 CHECK_SERVER		 = "check"
+REPORT_STAT			 = "report_stat"
 REPORT_ACCESS		 = "report_access"
+SHOW_LOG			 = "show_log"
 LIST_TOKENS_PERS	 = "list_pers"
 LIST_TOKENS_SESSION	 = "list_session"
 LIST_TOKENS_ALL		 = "list_all"
@@ -55,6 +59,7 @@ SET_TOKEN			 = "set"
 SET_TOKEN_PERS		 = "set_pers"
 ADD_TOKEN 			 = "add"
 ADD_TOKEN_PERS		 = "add_pers"
+ADD_TOKEN_SEC		 = "add_sec"
 LOAD_TOKENS 		 = "load"
 LOAD_TOKENS_PERS	 = "load_pers"
 LOAD_FILE 			 = "load_file"
@@ -71,18 +76,28 @@ REMOVE_SECTION_PERS	 = "remove_section_pers"
 REMOVE_SECTION_SEC	 = "remove_section_sec"
 CLEAR_SEC			 = "clear_sec"
 CLEAR_SESSION		 = "clear_session"
+TEST_START			 = "test_start"
+TEST_CONFIGURE		 = "test_configure"
+TEST_MULTIUSER_BEGIN = "test_multiuser_begin"
+TEST_MULTIUSER_END 	 = "test_multiuser_end"
 
 # Command groups
 
 pubread_cmds = ( CHECK_SERVER, LIST_TOKENS_ALL, LIST_TOKENS_PERS, LIST_TOKENS_SESSION, 
 			GET_TOKEN, GET_TOKEN_PERS )
-secure_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, REPORT_ACCESS, GET_TOKEN_SEC, 
-			LOAD_FILE_SEC, REMOVE_TOKEN_SEC, REMOVE_SECTION_SEC, CLEAR_SEC)
+secure_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, REPORT_ACCESS, REPORT_STAT, 
+			ADD_TOKEN_SEC, GET_TOKEN_SEC, LOAD_FILE_SEC, REMOVE_TOKEN_SEC, REMOVE_SECTION_SEC, 
+			CLEAR_SEC, SHOW_LOG)
 pers_cmds = ( LIST_TOKENS_PERS, SET_TOKEN_PERS, ADD_TOKEN_PERS, LOAD_TOKENS_PERS, LOAD_FILE_PERS,
 			GET_TOKEN_PERS, REMOVE_TOKEN_PERS, REMOVE_SECTION_PERS)
+local_cmds = (SHOW_LOG, TEST_START, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END)
 
-# Logger
+# Loggers
 log = None
+logtok = None
+
+# Trusted users
+trusted = []
 
 # Exceptions
 
@@ -119,15 +134,66 @@ def signal_handler( signal, frame ):
 	if _sockfile:
 		os.unlink( _sockfile )
 	sys.exit( 1 )
+	
+def setLog( loglevel, logtopics=None ):
+	global log, logtok
+	log = logging.getLogger( APPNAME )
+	log_level = getattr( logging, loglevel )
+	log.setLevel( log_level )
 
+	# Console output ( for debugging )
+	strlog = logging.StreamHandler()
+	strlog.setLevel( loglevel )
+	bf = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
+	strlog.setFormatter( bf )
+	log.addHandler( strlog )
+	
+	logtok = logging.getLogger(APPNAME + ".tok")
+	if logtopics:
+		if logtopics == "tokens":
+			logtok.setLevel(logging.DEBUG)
+			strlogtok = logging.StreamHandler()
+			strlogtok.setLevel( logging.DEBUG )
+			bftok = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
+			strlogtok.setFormatter( bftok )
+			logtok.addHandler( strlogtok )
+			
+def get_home_dir():
+	global homedir
+	if homedir:
+		return homedir
+	
+	username = pwd.getpwuid(os.getuid())[0]
+
+	if username:
+		return os.path.expanduser( '~' + username )
+	else:
+		return ":"  # No home directory
+			
+def get_conf_dir():
+	global confdir, homedir
+	
+	if confdir:
+		return confdir
+	
+	if not homedir:
+		homedir = get_home_dir()
+		
+	if homedir == "-":
+		return None
+	
+	confhome = os.getenv("XDG_CONFIG_HOME", homedir + "/.config")
+	return confhome + "/regd"
+	
+			
 def read_conf( cnf ):
-	cp = ConfigParser()
+	cp = ConfigParser( delimiters=( "=" ) )
 	# First reading system-wide settings
 	CONFFILE = "/etc/regd/regd.conf"
 	if os.path.exists( CONFFILE ):
 		cp.read( CONFFILE )
 
-	CONFFILE = homedir + "/.config/regd/regd.conf"
+	CONFFILE = confdir + "/regd.conf"
 	if os.path.exists( CONFFILE ):
 		cp.read( CONFFILE )
 
@@ -138,7 +204,6 @@ def read_conf( cnf ):
 def parse_server_name( server_string ):
 	atuser = None
 	servername = None
-	log.debug( "server_string: %s" % ( server_string ) )
 	
 	if server_string:
 		if server_string.find( '@' ) != -1:
@@ -154,7 +219,6 @@ def parse_server_name( server_string ):
 			raise ISException( unknownDataFormat, server_string, 
 							"The server name must not exceed 32 characters.")
 	
-	log.debug( "atuser: %s; servername: %s" % (atuser, servername) )
 	return ( atuser, servername )
 
 def get_filesock_addr( atuser, servername ):
@@ -168,7 +232,6 @@ def get_filesock_addr( atuser, servername ):
 		sockdir = '{0}/{1}'.format( tmpdir, userid )
 		
 	_sockfile = '{0}/.{1}.{2}'.format( sockdir, servername, sockname )	
-	log.debug( "sockdir: %s; _sockfile: %s" % (sockdir, _sockfile) )
 	return ( sockdir, _sockfile )
 
 def read_sec_file( filename, cmd, tok ):
@@ -198,65 +261,89 @@ def read_sec_file( filename, cmd, tok ):
 			tok.add_section( curSect )
 		else:
 			add_token( tok, curSect + ":" + s )
-			
-def escapedpart( tok, sep ):
+
+def escaped( s, idx ):
+	'''Determines if a character is escaped'''
+	# TODO: I couldn't come up with a reliable way to determine whether a character is 
+	# escaped if it's preceded with a backslash: 
+	# >>> len('\=')
+	# >>> 2
+	# >>> len('\\=')
+	# >>> 2
+	# >>> len('\\a')
+	# >>> 2
+	# >>> len('\\\a')
+	# >>> 2	
+	# Because of this there is a rule that separators must not be preceded with a backslash.
+	if not ( s and idx ):
+		return False
+	
+	return ( s[idx-1] is '\\' )
+
+				
+def escapedpart( tok, sep, second=False ):
+	'''Partition on non-escaped separators'''
 	if not tok:
 		return (None, None)
 	idx = -1
 	start = 1
 	while True:
 		idx = tok.find( sep, start )
-		if ( idx == -1 ) or ( tok[idx-1] is not '\\'):
+		if ( idx == -1 ) or not escaped( tok, idx ):
 			break
 		start = idx + 1
 	
 	if idx == -1: 
 		tok = tok.replace("\\"+sep, sep)
-		return None, tok
+		return (None, tok) if second else ( tok, None )
 	
 	l, r = ( tok[0:idx], tok[(idx+1):] )
 	l = l.replace("\\"+sep, sep)
-	r = r.replace("\\"+sep, sep)
+	#r = r.replace("\\"+sep, sep)
 		
-	return (l, r) 	
+	return (l, r)
 
-def add_token( cp, tok, noOverwrite = False ):
-	log.debug( "tok: {0}".format( tok ) )
-	sec, opt = escapedpart( tok, ":" )
+def parse_token( tok, second=True ):
+	logtok.debug( "tok: {0}".format( tok ) )
+	sec, opt = escapedpart( tok, ":", True )
 	if sec: sec = sec.strip()
 	if opt: opt = opt.strip()
-	log.debug( "section: {0}, option: {1}".format( sec, opt ) )
+	logtok.debug( "section: {0} : option: {1}".format( sec, opt ) )
 	
-	key, val = escapedpart(opt, "=")
-	if key: key = key.strip()
-	if val: val = val.strip()
+	if second:
+		nam, val = escapedpart(opt, "=")
+		nam = nam.strip() if nam else None
+		val = val.strip() if val else None
+	else:
+		nam = opt
+		val = None
 
-	log.debug( "name: {0}, value: {1}".format( key, val ) )
-	
-	if not val:
-		raise ISException( unknownDataFormat, tok )
+	logtok.debug( "name: {0} = value: {1}".format( nam, val ) )
 
 	if not sec:
 		sec = GLSEC
+		
+	return (sec, nam, val)
+
+def add_token( cp, tok, noOverwrite = False ):
+	sec, nam, val = parse_token(tok)
+	
+	if not ( nam and val ):
+		raise ISException( unknownDataFormat, tok ) 
 
 	if not cp.has_section( sec ):
 		cp.add_section( sec )
 
-	if noOverwrite and cp.has_option( sec, key ):
+	if noOverwrite and cp.has_option( sec, nam ):
 		raise ISException( valueAlreadyExists, tok )
 
-	cp[sec][key] = val
+	cp[sec][nam] = val
 
 def get_token( cp, tok ):
-	sec, _, opt = tok.rpartition( ":" )
-	sec = sec.strip()
-	opt = opt.strip()
-
+	sec, opt, _ = parse_token( tok, False )
+	
 	if not opt:
 		raise ISException( unknownDataFormat, tok )
-
-	if not sec:
-		sec = GLSEC
 
 	if not cp.has_section( sec ) or not cp.has_option( sec, opt ):
 		raise ISException( valueNotExists, tok )
@@ -264,15 +351,10 @@ def get_token( cp, tok ):
 	return cp[sec].get( opt )
 
 def remove_token( cp, tok ):
-	sec, _, opt = tok.rpartition( ":" )
-	sec = sec.strip()
-	opt = opt.strip()
+	sec, opt, _ = parse_token( tok, False )
 
 	if not opt:
 		raise ISException( unknownDataFormat, tok )
-
-	if not sec:
-		sec = GLSEC
 
 	if not cp.has_section( sec ) or not cp.has_option( sec, opt ):
 		raise ISException( valueNotExists, tok )
@@ -305,7 +387,43 @@ def list_tokens( cp, sec = None ):
 
 	return ret
 
-def contactServer( item, sockfile=None, host=None, port=None ):
+def printMap( m, indent ):
+	ret = ""
+	for k,v in m.items():
+		if type( v ) is dict:
+			ret += "{0:{width}}[{1}]\n".format("", k, width=(indent+1))
+			ret += printMap( m[k], indent + 4 )
+		else:
+			ret += "{0:{width}} {1:20} : {2}\n".format("", k, v, width=(indent+1))
+			
+	return ret
+			
+def statReg(cp):
+	m={}
+	m['num_of_sections'] = len( cp.sections() )
+	m['num_of_tokens'] = 0
+	m['max_key_length'] = 0
+	m['max_value_length'] = 0
+	m['avg_key_length'] = 0
+	m['avg_value_length'] = 0
+	m['total_size_bytes'] = 0
+	for sec in cp.sections():
+		for nam, val in cp.items( sec ):
+			m['num_of_tokens'] += 1
+			if len(nam) > m['max_key_length']:
+				m['max_key_length'] = len(nam)
+			if len(val) > m['max_value_length']:
+				m['max_value_length'] = len(val)
+			m['avg_key_length'] += len(nam)
+			m['avg_value_length'] += len(val)
+			m['total_size_bytes'] += sys.getsizeof(val) + sys.getsizeof(nam)
+	if m['num_of_tokens']:
+		m['avg_key_length'] /= m['num_of_tokens']
+		m['avg_value_length'] /= m['num_of_tokens']
+	return m
+					
+			
+def Client( item, sockfile=None, host=None, port=None ):
 	'''
 	"Client" function. Performs requests to a running server.
 	'''
@@ -316,6 +434,9 @@ def contactServer( item, sockfile=None, host=None, port=None ):
 		# Create an Internet socket
 		sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
 	else:
+		if not os.path.exists( _sockfile ):
+			return "0Server isn't running on {0}.".format( sockfile )
+				
 		sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
 		sock.setsockopt(socket.SOL_SOCKET, socket.SO_PASSCRED, 1)
 		
@@ -352,12 +473,12 @@ def contactServer( item, sockfile=None, host=None, port=None ):
 
 		return data[:-eodsize].decode( 'utf-8' )
 	except OSError as er:
-		resp = "0regd: contactServer: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
+		resp = "0regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
 												er.errno, er.strerror, sockfile, host, port )
 		return resp
 
 
-def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
+def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 	global data_fd
 	
 	if sockfile and os.path.exists( sockfile ):
@@ -366,7 +487,8 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 			# If the server is restarted, give the previous instance time to exit cleanly.
 			time.sleep( 2 )
 			res = subprocess.check_output( 
-						"ps -ef | grep '{0} --start' | grep -v grep".format( __main__.__file__ ),
+						"ps -ef | grep '{0} --start .* {1} ' | grep -v grep".format( 
+											__main__.__file__, servername ),
 						shell = True )
 			res = res.decode( 'utf-8' )
 		except subprocess.CalledProcessError as e:
@@ -388,12 +510,17 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 			if os.path.exists( sockfile ):
 				raise
 			
-	tokens = ConfigParser()
-	sectokens = ConfigParser()
-	perstokens = ConfigParser()
+	stat = {}
+	stat["general"]={}
+	stat["tokens"]={}
+	stat["commands"]={}
+	mcmd = stat["commands"]
+	tokens = ConfigParser(interpolation = None)
+	sectokens = ConfigParser( interpolation = None )
+	perstokens = ConfigParser( interpolation = None )
 	tokens.optionxform = str
 	sectokens.optionxform = str
-	perstokens.optionxform = str			
+	perstokens.optionxform = str	
 
 	# Default encrypted file name
 	ENCFILE = homedir + "/.sec/safestor.gpg"
@@ -413,6 +540,16 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 		ITEMMARKER = d["token_separator"]
 	if "encfile_read_cmd" in d:
 		READ_ENCFILE_CMD = d["encfile_read_cmd"]
+	if "trusted_users" in d:
+		trustedNames = d["trusted_users"]
+		if trustedNames:
+			trustedNames = trustedNames.split(' ')
+			for un in trustedNames:
+				try:
+					uid = pwd.getpwnam( un ).pw_uid
+				except:
+					continue
+				trusted.append(uid)
 
 	if data_fd:
 		perstokens.read( data_fd )
@@ -427,6 +564,21 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 	itemmarksize = len( ITEMMARKER )
 	log.info( "Starting server..." )
 	useruid = os.getuid()
+	stat["general"]["time_started"] = str(datetime.now()).rpartition(".")[0] 
+	timestarted = datetime.now()
+	
+	def prepareStat():
+		nonlocal mcmd
+		ret = ""
+		m = statReg( tokens )
+		ret += ( "\nSession tokens:\n------------------------\n")
+		ret += printMap( m, 0 )
+		m = statReg( perstokens )
+		ret += ( "\nPersistent tokens:\n------------------------\n")
+		ret += printMap( m, 0 )
+		ret += ( "\nCommands:\n------------------------\n")
+		ret += printMap( mcmd, 0 )
+		return ret
 	
 	try:
 		if host:
@@ -446,12 +598,13 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 
 	while True:
 		connection, client_address = sock.accept()
-		log.debug( "Server: new connection: client address: %s" % ( client_address ) )
 		if not host:
 			creds = connection.getsockopt( socket.SOL_SOCKET, socket.SO_PEERCRED, 
 									struct.calcsize("3i"))
 			pid, uid, gid = struct.unpack("3i", creds)
-			log.debug("pid: {0}; uid: {1}; gid: {2}".format( pid, uid, gid ) )
+			log.info("new connection: pid: {0}; uid: {1}; gid: {2}".format( pid, uid, gid ) )
+		else:
+			log.info( "new connection: client address: %s" % ( str( client_address ) ) )
 
 		connection.settimeout( 3 )
 		data = bytearray()
@@ -463,7 +616,7 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 					break
 
 			data = data[:-eodsize].decode( 'utf-8' )
-			log.debug( "Server: data received: {0}".format( data ) )
+			log.info( "command received: {0}".format( data ) )
 
 			# Three response classes:
 			# 0 - program error
@@ -479,29 +632,43 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 			else:
 				cmd = GET_TOKEN
 				
-			if useruid == uid:
+			if host:
+				# IP-based server
 				perm = True
-			elif cmd not in secure_cmds:
-				if acc == PL_PUBLIC:
+			else:
+				# File socket server
+				if useruid == uid:
 					perm = True
-				elif acc == PL_PUBLIC_READ:
-					if cmd in pubread_cmds:
-						perm = True 
+				elif uid in trusted:
+					perm = True
+				elif cmd not in secure_cmds:
+					if acc == PL_PUBLIC:
+						perm = True
+					elif acc == PL_PUBLIC_READ:
+						if cmd in pubread_cmds:
+							perm = True 
 
 			if not perm:
 				resp = str( ISException( permissionDenied, cmd ) )
 			elif not data_fd and cmd in pers_cmds:
 				resp = str( ISException(persistentNotEnabled))
 			else:
+				mcmd[cmd] = 1 if cmd not in mcmd else mcmd[cmd]+1
+				
 				if cmd == STOP_SERVER:
 					resp = "1"
 
 				if cmd == CHECK_SERVER:
-					resp = "1Ready and waiting."
+					resp = "1Up and running since {0}\nUptime:{1}.".format(	
+							str(timestarted).rpartition(".")[0], 
+							str(datetime.now() - timestarted).rpartition(".")[0])
 				
 				if cmd == REPORT_ACCESS:
 					resp = "1{0}".format( acc )
-
+					
+				if cmd == REPORT_STAT:
+					resp = "1" + prepareStat()
+					
 				if cmd == LIST_TOKENS_PERS:
 					sects = data.split( "," ) if len( data ) else None
 					try:
@@ -720,7 +887,7 @@ def startServer( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE
 			connection.close()
 
 def main(*kwargs):
-	global homedir, log, _sockfile, data_fd
+	global homedir, confdir, log, logtok, _sockfile, data_fd
 
 	# Parsing command line
 
@@ -741,46 +908,59 @@ def main(*kwargs):
 			setattr( namespace, "actioncmd", True )
 			setattr( namespace, "cmd", self.dest[:] )
 
+	def clp( s ):
+		return("--" + s.replace("_", "-"))
+	
 	parser = argparse.ArgumentParser( 
 		description = 'regd : Registry server.'
 	)
+	
 	group = parser.add_mutually_exclusive_group()
 	parser.add_argument( 'token', nargs = '?', help = 'Get a token' )
 	parser.add_argument( '--log-level', default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
+	parser.add_argument( '--log-topics', help = 'For debugging purposes.' )
 	parser.add_argument( '--server-name', help = 'The name of the server instance.' )
 	parser.add_argument( '--host', help = 'Run the server on an Internet socket with the specified hostname.' )
 	parser.add_argument( '--port', help = 'Run the server on an Internet socket with the specified port.' )
 	parser.add_argument( '--access', help = 'Access level for the server: private, public_read or public.' )
 	parser.add_argument( '--datafile', help = 'File for reading and storing persistent tokens.' )
+	parser.add_argument( '--no-verbose', action='store_true', help = 'Only output return code numbers.' )
 	group.add_argument( '--version', action='store_true', help = 'Print regd version.' )
-	group.add_argument( '--' + START_SERVER, action = "store_true", help = 'Start server' )
-	group.add_argument( '--' + STOP_SERVER, action = "store_true", help = 'Stop server' )
-	group.add_argument( '--' + RESTART_SERVER, action = "store_true", help = 'Restart server' )
-	group.add_argument( '--' + CHECK_SERVER, nargs = 0, action = ActionCmd, help = 'Ping server' )
-	group.add_argument( '--' + REPORT_ACCESS, nargs = 0, action = ActionCmd, help = 'Report the server\'s permission level.' )
-	group.add_argument( '--' + ADD_TOKEN, action = Item, metavar = "TOKEN", help = 'Add a token' )
-	group.add_argument( '--' + SET_TOKEN, action = Item, metavar = "TOKEN", help = 'Set a token' )
-	group.add_argument( '--' + ADD_TOKEN_PERS.replace( '_', '-' ), action = Item, metavar = "TOKEN", help = 'Add a persistent token' )
-	group.add_argument( '--' + SET_TOKEN_PERS.replace( '_', '-' ), action = Item, metavar = "TOKEN", help = 'Set a persistent token' )
-	group.add_argument( '--' + LOAD_TOKENS.replace( '_', '-' ), action = Item, metavar = "TOKENS", help = 'Add tokens' )
-	group.add_argument( '--' + LOAD_TOKENS_PERS.replace( '_', '-' ), action = Item, metavar = "TOKENS", help = 'Add persistent tokens' )
-	group.add_argument( '--' + GET_TOKEN, action = Item, metavar = "NAME", help = 'Get a token' )
-	group.add_argument( '--' + GET_TOKEN_PERS, action = Item, metavar = "NAME", help = 'Get a persistent token' )
-	group.add_argument( '--' + GET_TOKEN_SEC.replace( '_', '-' ), action = Item, metavar = "NAME", help = 'Get a secure token' )
-	group.add_argument( '--' + LIST_TOKENS_ALL.replace( '_', '-' ), action = ActionCmd, nargs = 0, help = 'List cached and persistent tokens' )
-	group.add_argument( '--' + LIST_TOKENS_SESSION.replace( '_', '-' ), action = Item, metavar = "SECTIONS", nargs = '?', help = '--list-session [section[,section]...]' )
-	group.add_argument( '--' + LIST_TOKENS_PERS.replace( '_', '-' ), action = Item, metavar = "SECTIONS", nargs = '?', help = '--list-pers [section[,section]...]' )
-	group.add_argument( '--' + LOAD_FILE.replace( '_', '-' ), action = Item, metavar = "FILENAME", help = 'Load tokens from a file' )
-	group.add_argument( '--' + LOAD_FILE_PERS.replace( '_', '-' ), action = Item, metavar = "FILENAME", help = 'Add persistent tokens from a file' )
-	group.add_argument( '--' + LOAD_FILE_SEC.replace( '_', '-' ), action = Item, metavar = "FILENAME", nargs = '?', help = 'Load tokens from encrypted file' )
-	group.add_argument( '--' + REMOVE_TOKEN, action = Item, metavar = "NAME", help = 'Remove a token' )
-	group.add_argument( '--' + REMOVE_TOKEN_PERS.replace( '_', '-' ), action = Item, metavar = "NAME", help = 'Remove a persistent token' )
-	group.add_argument( '--' + REMOVE_TOKEN_SEC.replace( '_', '-' ), action = Item, metavar = "NAME", help = 'Remove a secure token' )
-	group.add_argument( '--' + REMOVE_SECTION.replace( '_', '-' ), action = Item, metavar = "SECTION", help = 'Remove a section' )
-	group.add_argument( '--' + REMOVE_SECTION_PERS.replace( '_', '-' ), action = Item, metavar = "SECTION", help = 'Remove a persistent section' )
-	group.add_argument( '--' + REMOVE_SECTION_SEC.replace( '_', '-' ), action = Item, metavar = "SECTION", help = 'Remove a secure section' )
-	group.add_argument( '--' + CLEAR_SEC.replace( '_', '-' ), action = ActionCmd, help = 'Remove all secure tokens' )
-	group.add_argument( '--' + CLEAR_SESSION.replace( '_', '-' ), action = ActionCmd, help = 'Remove all session and secure tokens' )
+	group.add_argument( clp(START_SERVER), action = "store_true", help = 'Start server' )
+	group.add_argument( clp(STOP_SERVER), action = "store_true", help = 'Stop server' )
+	group.add_argument( clp(RESTART_SERVER), action = "store_true", help = 'Restart server' )
+	group.add_argument( clp(CHECK_SERVER), nargs = 0, action = ActionCmd, help = 'Ping server' )
+	group.add_argument( clp(REPORT_ACCESS), nargs = 0, action = ActionCmd, help = 'Report the server\'s permission level.' )
+	group.add_argument( clp(REPORT_STAT), nargs = 0, action = ActionCmd, help = 'Report the server\'s statistics.' )
+	group.add_argument( clp(SHOW_LOG), metavar="N", nargs='?', const='10', help = 'Show the last N lines of the log file (if log is enabled).' )
+	group.add_argument( clp(ADD_TOKEN), action = Item, metavar = "TOKEN", help = 'Add a token' )
+	group.add_argument( clp(SET_TOKEN), action = Item, metavar = "TOKEN", help = 'Set a token' )
+	group.add_argument( clp(ADD_TOKEN_PERS), action = Item, metavar = "TOKEN", help = 'Add a persistent token' )
+	group.add_argument( clp(SET_TOKEN_PERS), action = Item, metavar = "TOKEN", help = 'Set a persistent token' )
+	group.add_argument( clp(ADD_TOKEN_SEC), action = Item, metavar = "TOKEN", help = 'Add a secure token' )
+	group.add_argument( clp(LOAD_TOKENS), action = Item, metavar = "TOKENS", help = 'Add tokens' )
+	group.add_argument( clp(LOAD_TOKENS_PERS), action = Item, metavar = "TOKENS", help = 'Add persistent tokens' )
+	group.add_argument( clp(GET_TOKEN), action = Item, metavar = "NAME", help = 'Get a token' )
+	group.add_argument( clp(GET_TOKEN_PERS), action = Item, metavar = "NAME", help = 'Get a persistent token' )
+	group.add_argument( clp(GET_TOKEN_SEC), action = Item, metavar = "NAME", help = 'Get a secure token' )
+	group.add_argument( clp(LIST_TOKENS_ALL), action = ActionCmd, nargs = 0, help = 'List cached and persistent tokens' )
+	group.add_argument( clp(LIST_TOKENS_SESSION), action = Item, metavar = "SECTIONS", nargs = '?', help = '--list-session [section[,section]...]' )
+	group.add_argument( clp(LIST_TOKENS_PERS), action = Item, metavar = "SECTIONS", nargs = '?', help = '--list-pers [section[,section]...]' )
+	group.add_argument( clp(LOAD_FILE), action = Item, metavar = "FILENAME", help = 'Load tokens from a file' )
+	group.add_argument( clp(LOAD_FILE_PERS), action = Item, metavar = "FILENAME", help = 'Add persistent tokens from a file' )
+	group.add_argument( clp(LOAD_FILE_SEC), action = Item, metavar = "FILENAME", nargs = '?', help = 'Load tokens from encrypted file' )
+	group.add_argument( clp(REMOVE_TOKEN), action = Item, metavar = "NAME", help = 'Remove a token' )
+	group.add_argument( clp(REMOVE_TOKEN_PERS), action = Item, metavar = "NAME", help = 'Remove a persistent token' )
+	group.add_argument( clp(REMOVE_TOKEN_SEC), action = Item, metavar = "NAME", help = 'Remove a secure token' )
+	group.add_argument( clp(REMOVE_SECTION), action = Item, metavar = "SECTION", help = 'Remove a section' )
+	group.add_argument( clp(REMOVE_SECTION_PERS), action = Item, metavar = "SECTION", help = 'Remove a persistent section' )
+	group.add_argument( clp(REMOVE_SECTION_SEC), action = Item, metavar = "SECTION", help = 'Remove a secure section' )
+	group.add_argument( clp(CLEAR_SEC), action = ActionCmd, help = 'Remove all secure tokens' )
+	group.add_argument( clp(CLEAR_SESSION), action = ActionCmd, help = 'Remove all session and secure tokens' )
+	group.add_argument( clp(TEST_START), action = 'store_true', help = 'Start test' )
+	group.add_argument( clp(TEST_CONFIGURE), action='store_true', help = 'Configure test' )
+	group.add_argument( clp(TEST_MULTIUSER_BEGIN), action='store_true', help = 'Start regd server on this account for multiuser test.' )
+	group.add_argument( clp(TEST_MULTIUSER_END), action='store_true', help = 'End multiuser test' )
 
 	args = parser.parse_args(*kwargs)
 	
@@ -789,18 +969,9 @@ def main(*kwargs):
 		return 0
 	
 	# Setting up logging
-
-	log = logging.getLogger( APPNAME )
-	log_level = getattr( logging, args.log_level )
-	log.setLevel( log_level )
-
-	# Console output ( for debugging )
-	strlog = logging.StreamHandler()
-	strlog.setLevel( log_level )
-	bf = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
-	strlog.setFormatter( bf )
-	log.addHandler( strlog )
 	
+	setLog( args.log_level, args.log_topics )
+
 	# Setting up server name
 	
 	try:
@@ -808,17 +979,14 @@ def main(*kwargs):
 	except ISException as e:
 		print( e )
 		return e.code
+	log.debug("Server name: %s ; atuser: %s" % (servername, atuser))
 		
-	username = pwd.getpwuid(os.getuid())[0]
 	userid = os.getuid()
+	homedir = get_home_dir()
+	confdir = get_conf_dir()
+
+	log.debug("userid: %i ; homedir: %s ; confdir: %s  " % (userid, homedir, confdir))
 	
-	# Setting up local environment
-
-	if username:
-		homedir = os.path.expanduser( '~' + username )
-	else:
-		homedir = ":"  # No home directory
-
 	d = {}
 	read_conf( d )
 	
@@ -826,6 +994,8 @@ def main(*kwargs):
 	
 	host = args.host
 	port = args.port
+	_sockfile = None
+	sockdir = None
 	
 	if ( host or port ) and not ( host and port ):
 		print( ( "Error: regd not started. For running regd on an internet address both "
@@ -835,7 +1005,10 @@ def main(*kwargs):
 	if not host:
 		'''Server runs on a UNIX domain socket.'''
 		sockdir, _sockfile = get_filesock_addr( atuser, servername )
-
+		log.debug("sockdir: %s ; sockfile: %s  " % (sockdir, _sockfile))
+	else:
+		log.debug("host: %s ; port: %s  " % (host, port))
+	
 	# File log
 	if "logfile" in d:
 		logfile = d["logfile"]
@@ -847,13 +1020,17 @@ def main(*kwargs):
 		filelog = logging.FileHandler( logfile )
 		filelog.setLevel( logging.WARNING )
 		log.addHandler( filelog )
+	
+	# Test module
+	tstdir=os.path.dirname(os.path.realpath(__file__)).rpartition("/")[0]+"/testing"
+	tst = tstdir + "/tests.py"
+
+	# Test helper module.
+	tsthelp = tstdir+"/test_help.py"
 
 	# Handling command line
-
-	if not args.start:
-		if not host and not os.path.exists( _sockfile ):
-			log.warning( "Server isn't running on {0}.".format( _sockfile ) )
-			return 1
+	
+	# Server commands
 
 	if args.start:
 		
@@ -862,8 +1039,13 @@ def main(*kwargs):
 		if atuser and userid:
 			log.error( "Server cannot be started with server name containing '@'.")
 			return 1
-		os.makedirs( sockdir, mode=0o777, exist_ok=True )
-		os.chmod( sockdir, mode=0o777 )
+		if not host:
+			try:
+				os.makedirs( sockdir, mode=0o777, exist_ok=True )
+				os.chmod( sockdir, mode=0o777 )
+			except Exception as e:
+				print("Error: cannot create temporary file socket directory. Exiting.")
+				return -1
 		
 		# Permission level 
 		
@@ -878,11 +1060,12 @@ def main(*kwargs):
 			else:
 				print( "Unknown access mode. Must be: 'private', 'public-read' or 'public'")
 				return 1
+		log.debug("Permission level: %s" % args.access )
 		
 		# Data file
 		
 		# Default data directory
-		DATADIR = homedir + "/.config/regd/data/"
+		DATADIR = confdir + "/data/"
 	
 		# Checking regd.conf for datadir
 		if "datadir" in d:
@@ -895,8 +1078,10 @@ def main(*kwargs):
 				os.makedirs( DATADIR )
 			except OSError as e:
 				DATADIR = ""
+				
+		log.debug( "datadir: %s" % DATADIR )
 		
-		# Checking --datafile on the command line
+		# Checking --datafile command line option
 		datafile = args.datafile
 		if datafile:
 			if datafile == "None":
@@ -915,11 +1100,13 @@ def main(*kwargs):
 			
 			datafile = DATADIR + datafile
 		
+		log.debug( "datafile: %s" % datafile )
+		
 		if datafile:
 			# Obtaining the lock
 			try:
 				data_fd = open( datafile, "w" )
-				fcntl.lockf( data_fd, fcntl.LOCK_EX | fcntl.LOCK_NB )
+				data_fd = fcntl.lockf( data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
 			except OSError as e:
 				print("Error: data file \"{0}\" could not be opened.".format(datafile), 
 				"Probably it's already opened by another process. Server is not started.")
@@ -927,16 +1114,19 @@ def main(*kwargs):
 		else:
 			print( "Server's data file is not specified. Persistent tokens are not enabled.")
 			
-		return startServer( servername, _sockfile, host, port, acc )
+		log.info( "Starting %s server %s : %s " % (args.access, 
+						(servername,host)[bool(host)], (_sockfile, port)[bool(host)]  ))
+		return Server( servername, _sockfile, host, port, acc )
 
 	elif args.stop:
-		if contactServer( CMDMARKER + STOP_SERVER, _sockfile, host, port ) != "1":
-			log.error( "cmd 'stop': Cannot contact server." )
+		if Client( CMDMARKER + STOP_SERVER, _sockfile, host, port ) != "1":
+			if not args.no_verbose:
+				log.error( "cmd 'stop': Cannot contact server." )
 			return -1
 
 	elif args.restart:
-		res = contactServer( CMDMARKER + REPORT_ACCESS, _sockfile, host, port )
-		if contactServer( CMDMARKER + STOP_SERVER, _sockfile, host, port ) != "1":
+		res = Client( CMDMARKER + REPORT_ACCESS, _sockfile, host, port )
+		if Client( CMDMARKER + STOP_SERVER, _sockfile, host, port ) != "1":
 			log.error( "cmd 'restart': Cannot contact server." )
 			return -1
 		
@@ -947,34 +1137,58 @@ def main(*kwargs):
 
 		time.sleep( 1 )
 
-		return startServer( servername, _sockfile, host, port, int(res[1]) )
+		return Server( servername, _sockfile, host, port, int(res[1]) )
 
 	elif hasattr( args, 'itemcmd' ):
 		if args.item:
-			res = contactServer( CMDMARKER + args.cmd + " " + args.item, _sockfile, host, port )
+			res = Client( CMDMARKER + args.cmd + " " + args.item, _sockfile, host, port )
 		else:
 			'''Default item'''
-			res = contactServer( CMDMARKER + args.cmd, _sockfile, host, port )
+			res = Client( CMDMARKER + args.cmd, _sockfile, host, port )
 		if res[0] != '1':
 			if args.cmd.startswith( "get" ):
 				print( "0", res )
 			elif res[0] == '0' :
-				log.error( "itemcmd: Cannot contact server." )
+				log.error( "Cannot contact server." )
 			else:
-				log.error( "itemcmd: " + res[1:] )
+				log.error( res[1:] )
 			log.debug( res )
 			return -1
 		print( res )
 
 	elif hasattr( args, "actioncmd" ):
-		res = contactServer( CMDMARKER + args.cmd, _sockfile, host, port )
+		res = Client( CMDMARKER + args.cmd, _sockfile, host, port )
 		if res[0] != '1':
-			log.error( "actioncmd: Cannot contact server." )
-			log.debug( res )
+			log.error( res )
 			return -1
 		print( res )
+	
+	# Local commands
+	
+	elif args.show_log:
+		with open( logfile, "r" ) as f:
+			ls = f.readlines()[-int(args.show_log):]
+			[print( x.strip('\n')) for x in ls ]
+			
+	elif args.test_configure:
+		#subprocess.Popen( [tsthelp, "--test-configure"])
+		subprocess.call( [tsthelp, "--test-configure"])
+		
+	elif args.test_start:
+		print("It's recommended to shutdown all regd server instances before testing.")
+		ans = input("\nPress 'Enter' to begin test, or 'q' to quit.")
+		if ans and ans in 'Qq':
+			return 0
+		subprocess.call( ["python", "-m", "unittest", "testing.tests.currentTest"])
+		#subprocess.call( ["python", tst])
+		
+	elif args.test_multiuser_begin:
+		subprocess.Popen( [tsthelp, "--test-multiuser-begin"])
 
-
+	elif args.test_multiuser_end:
+		subprocess.Popen( [tsthelp, "--test-multiuser-end"])	
+	
+	
 	return 0
 
 
