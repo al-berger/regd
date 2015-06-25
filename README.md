@@ -1,31 +1,31 @@
   regd
 =========
 
-Regd is a registry service (like Windows registry) where other programs and 
+__regd__ is a registry service (like Windows registry) where other programs and 
 computer users can keep and retrieve back various information such
 as configuration settings, dynamic data, etc.
 
-Regd can be used both via command line and through sockets.
+__regd__ can be used both via __command_line__ and through __sockets__.
 
-Regd can securely handle confidential data. A user can load to
+__regd__ can securely handle confidential data. A user can load to
 regd an encrypted file with confidential data (e.g. database 
 password) and regd will function as a keyring-agent or password
 manager, keeping this data in RAM until the user clears it out.
 
 On a system several users can have their own regd server instances and one
-user can have several regd server instances with different names and access
+user can have several __regd__ server instances with different names and access
 permissions.
 
-Access permissions can be defined for a regd server instance. All data in a
-regd server instance can be _private_, _public-readable_, or _public_.
+Access to data on __regd__ server can be restricted with access level permissions. 
+All data on a __regd__ server can be _private_, _public-readable_, or _public_.
 
-Regd can keep data temporarily or it can permanently store data on disk 
+__regd__ can keep data temporarily or it can permanently store data on disk 
 and load it automatically during startup.
 
-Use cases of regd include:
+Use cases of __regd__ include:
 
-- password agent (or more generally secure data cache) for providing other prorgrams 
-and scripts with data which is read from encrypted file (or loaded with some other 
+- password agent (or more generally - "secure data cache") for providing other prorgrams 
+and scripts with data which has read from encrypted file (or loaded with some other 
 secure method), is always kept in RAM and is never stored in files in unencrypted form.
 
 - interprocess communication agent for exchanging data between any number of programs,
@@ -46,7 +46,7 @@ as was shown for the local usage. (In this use case the security of data exchang
 within network should be ensured through the appropriate configuration of access
 levels within network with `iptables`, etc.)
 
-Regd manual can be found [here](https://github.com/nbdsp/regd/blob/master/data/MANUAL.md)
+__regd__ manual can be found [here](https://github.com/nbdsp/regd/blob/master/data/MANUAL.md)
 
 ## Examples of using regd
 
