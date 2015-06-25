@@ -10,7 +10,7 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-__lastedited__ = "2015-06-25 15:12:00"
+__lastedited__ = "2015-06-25 17:14:39"
 
 import unittest, sys, os, pwd, logging, re
 from configparser import ConfigParser
@@ -240,7 +240,7 @@ class BasicPermissionTest(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super(BasicPermissionTest, cls).setUpClass()
-		print("Starting testing permissions.")
+		print("\nStarting testing permissions.")
 		
 	def testBasic(self):
 		log.info("Performing permissions tests...")
@@ -262,7 +262,7 @@ class MultiuserPermissionTest(unittest.TestCase):
 	@classmethod
 	def setUpClass(cls):
 		super(MultiuserPermissionTest, cls).setUpClass()
-		print("Starting testing permissions.")
+		print("\nStarting testing permissions.")
 			
 	def testMultiuser(self):
 		log.info("Performing permissions tests...")

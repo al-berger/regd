@@ -36,7 +36,7 @@ setup(
     license             = regd.__license__,
     packages            = ['regd', 'regd.testing'],
     #package_data		= {'tests': ['data/test.conf']},
-    scripts             = ['data/regd', 'regd/regd.py'],
+    scripts             = ['data/regd'],
     classifiers         = classifiers,
     keywords            = "registry settings configuration manager daemon cache"
 )
