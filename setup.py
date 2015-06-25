@@ -34,7 +34,7 @@ setup(
     author_email        = regd.__author_email__,
     url                 = regd.__homepage__,
     license             = regd.__license__,
-    packages            = ['regd', 'regd.testing'],
+    packages            = ['regd'],
     #package_data		= {'tests': ['data/test.conf']},
     scripts             = ['data/regd', 'regd/regd.py'],
     classifiers         = classifiers,
