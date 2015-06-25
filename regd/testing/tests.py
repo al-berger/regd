@@ -10,13 +10,11 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-from unittest.result import TestResult
-
-__lastedited__ = "2015-06-23 23:33:39"
+__lastedited__ = "2015-06-25 15:12:00"
 
 import unittest, sys, os, pwd, logging, re
 from configparser import ConfigParser
-from testing import test_help as th
+from regd.testing import test_help as th
 test_basic = False
 test_network = False
 test_multiuser = False
@@ -163,6 +161,16 @@ def errorExit(code=-1):
 	tearDownModule()
 	sys.exit(code)
 
+class PrintDot:
+	def __init__(self, num):
+		self.num = num
+		self.cnt = 0
+
+	def __call__(self):
+		if self.cnt % self.num == 0:
+			print(".", end='', flush=True)
+		self.cnt += 1
+
 class TokensTest(unittest.TestCase):
 	'''Checking correct handling of various character combinations in various token parts.'''
 	tregs = []
@@ -189,26 +197,26 @@ class TokensTest(unittest.TestCase):
 		tf = th.TokenStringFeeder( th.testtokens )
 
 		for treg in self.tregs:
-			self.assertTrue( treg.do_token_cmd( "--add", tf ), 
+			self.assertTrue( treg.do_token_cmd( "--add", tf, PrintDot(10) ), 
 				"Failed adding tokens to registry {0}.".format( treg.servName ) )
-		log.info( "%i tokens were added." % ( len( tf ) ) )
+		log.info( "\n%i tokens were added." % ( len( tf ) ) )
 		
 	def testCompare(self):
 		print("\nChecking tokens added to server...")
 		cf = th.ChecksFeeder( th.testtokens )
 		for treg in self.tregs:
-			self.assertTrue( treg.compare( "--get", cf ),
+			self.assertTrue( treg.compare( "--get", cf, PrintDot(10) ),
 				"Failed comparing tokens in registry {0} with original values.".format( 
 				treg.servName ) )
-		log.info( "%i tokens were checked." % ( len( cf ) ) )
+		log.info( "\n%i tokens were checked." % ( len( cf ) ) )
 			
 	def testRemove(self):
 		print("\nTesting removing tokens from server...")
 		tk = th.KeysFeeder( th.testtokens )
 		for treg in self.tregs:
-			self.assertTrue( treg.do_token_cmd( "--remove", tk ),
+			self.assertTrue( treg.do_token_cmd( "--remove", tk, PrintDot(10) ),
 						"Failed removing tokens from registry {0}.".format( treg.servName ) )
-		log.info( "%i tokens were removed." % ( len( tk ) ) )
+		log.info( "\n%i tokens were removed." % ( len( tk ) ) )
 		
 	# Testing sections
 	
@@ -219,9 +227,9 @@ class TokensTest(unittest.TestCase):
 		self.testAdd()
 		self.testCompare()
 		self.testRemove()
-		
 
-@unittest.skipUnless(test_basic, "Skipping basic file socket permission test.")
+
+#@unittest.skipUnless(test_basic, "Skipping basic file socket permission test.")
 class BasicPermissionTest(unittest.TestCase):
 	'''Test permission levels.'''
 		
@@ -243,7 +251,7 @@ class BasicPermissionTest(unittest.TestCase):
 	def runTest(self):
 		self.testBasic()
 
-@unittest.skipUnless(test_multiuser, "Skipping multiuser file socket permission test.")
+#@unittest.skipUnless(test_multiuser, "Skipping multiuser file socket permission test.")
 class MultiuserPermissionTest(unittest.TestCase):
 	'''Test permission levels.'''
 		
@@ -273,8 +281,8 @@ class MultiuserPermissionTest(unittest.TestCase):
 		self.testMultiuser()
 
 
-gi = globInit()	
 
+gi = globInit()	
 	
 if __name__ == "__main__":
 	unittest.main(verbosity=2,defaultTest = currentTest)

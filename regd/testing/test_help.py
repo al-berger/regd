@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-23 18:11:06"
+__lastedited__ = "2015-06-25 15:15:18"
 
 
 import sys, os, socket, argparse, logging, time, re, pwd
@@ -121,7 +121,7 @@ def regdcmd( cmd = None, data = None, servername = None, host = None, port = Non
 
 	return res, ret
 
-rc = os.path.dirname( __file__ ).rpartition( '/' )[0] + "/regd/regd.py"
+rc = os.path.dirname( __file__ ).rpartition( '/' )[0] + "/regd.py"
 
 sn = "--server-name"
 add = "--add"
@@ -326,7 +326,7 @@ class TestReg:
 
 		return sp.check_output( args )
 
-	def do_token_cmd( self, cmd, tokens ):
+	def do_token_cmd( self, cmd, tokens, fb=None ):
 		global log
 		log.info( "Performing %s on name: %s ; host: %s:%s" % ( cmd, self.servName, self.host,
 															self.port ) )
@@ -336,18 +336,20 @@ class TestReg:
 				res = self.sendCmd( cmd, tok )
 				res = res[:-1].decode( 'utf-8' )
 				if res[0] != '1':
-					print( cmd, "failed:", res, "\n", cur )
+					print( cmd, "\nfailed:", res, "\n", cur )
 					return False
 			except sp.CalledProcessError as e:
-				print( rc, cmd, "returned non-zero:", e.output, "\n", cur )
+				print( rc, cmd, "\nreturned non-zero:", e.output, "\n", cur )
 				raise regd.ISException( regd.operationFailed )
+			
+			if fb: fb()
 
-		log.info( "%s tokens were processed on name: %s ; host: %s:%s" % ( len( tokens ),
+		log.info( "\n%s tokens were processed on name: %s ; host: %s:%s" % ( len( tokens ),
 													self.servName, self.host, self.port ) )
 		return True
 
 
-	def compare( self, getCmd, checks ):
+	def compare( self, getCmd, checks, fb=None ):
 		global log
 		log.info( "Comparing registry %s" % self.servName )
 		'''Compares the contents of the registry with the 'tokens' list.'''
@@ -369,6 +371,8 @@ class TestReg:
 			except sp.CalledProcessError as e:
 				print( rc, getCmd, "returned non-zero:", e.output )
 				raise regd.ISException( regd.operationFailed )
+			
+			if fb: fb()
 
 
 		log.info( "%s tokens were checked in registry '%s'" % ( len( checks ),
