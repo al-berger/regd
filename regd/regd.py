@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-25 15:24:13"
+__lastedited__ = "2015-06-25 15:55:03"
 
-VERSION = ( 0, 5, 0, 8 )
+VERSION = ( 0, 5, 0, 9 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'

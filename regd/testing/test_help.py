@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-25 15:15:18"
+__lastedited__ = "2015-06-25 17:10:55"
 
 
 import sys, os, socket, argparse, logging, time, re, pwd
@@ -121,7 +121,8 @@ def regdcmd( cmd = None, data = None, servername = None, host = None, port = Non
 
 	return res, ret
 
-rc = os.path.dirname( __file__ ).rpartition( '/' )[0] + "/regd.py"
+#rc = os.path.dirname( __file__ ).rpartition( '/' )[0] + "/regd.py"
+rc = "regd"
 
 sn = "--server-name"
 add = "--add"
