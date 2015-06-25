@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-25 17:10:55"
+__lastedited__ = "2015-06-25 22:35:35"
 
 
 import sys, os, socket, argparse, logging, time, re, pwd
@@ -822,9 +822,16 @@ def main( *kwargs ):
 	args = parser.parse_args( *kwargs )
 
 	# Config file
-	tstconf = regd.get_conf_dir() + "/test.conf"
+	CONFDIR = regd.get_conf_dir()
+	if not os.path.exists( CONFDIR ):
+		try:
+			os.makedirs( CONFDIR )
+		except OSError as e:
+			DATADIR = ""
+			
+	tstconf = CONFDIR + "/test.conf"
 	if not os.path.exists( tstconf ):
-		if os.path.exists( regd.get_conf_dir() ):
+		if os.path.exists( CONFDIR ):
 			with open( tstconf, "w" ) as f:
 				f.write( "" )
 
