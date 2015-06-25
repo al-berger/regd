@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-24 13:19:37"
+__lastedited__ = "2015-06-25 15:24:13"
 
-VERSION = ( 0, 5, 0, 7 )
+VERSION = ( 0, 5, 0, 8 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -1022,7 +1022,7 @@ def main(*kwargs):
 		log.addHandler( filelog )
 	
 	# Test module
-	tstdir=os.path.dirname(os.path.realpath(__file__)).rpartition("/")[0]+"/testing"
+	tstdir=os.path.dirname(os.path.realpath(__file__)) + "/testing"
 	tst = tstdir + "/tests.py"
 
 	# Test helper module.
@@ -1171,16 +1171,15 @@ def main(*kwargs):
 			[print( x.strip('\n')) for x in ls ]
 			
 	elif args.test_configure:
-		#subprocess.Popen( [tsthelp, "--test-configure"])
 		subprocess.call( [tsthelp, "--test-configure"])
 		
 	elif args.test_start:
-		print("It's recommended to shutdown all regd server instances before testing.")
+		print("\nIt's recommended to shutdown all regd server instances before testing.")
 		ans = input("\nPress 'Enter' to begin test, or 'q' to quit.")
 		if ans and ans in 'Qq':
 			return 0
-		subprocess.call( ["python", "-m", "unittest", "testing.tests.currentTest"])
-		#subprocess.call( ["python", tst])
+		print("Setting up test, please wait...")
+		subprocess.call( ["python", "-m", "unittest", "regd.testing.tests.currentTest"])
 		
 	elif args.test_multiuser_begin:
 		subprocess.Popen( [tsthelp, "--test-multiuser-begin"])
