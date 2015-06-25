@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-25 15:55:03"
+__lastedited__ = "2015-06-25 21:13:41"
 
-VERSION = ( 0, 5, 0, 9 )
+VERSION = ( 0, 5, 0, 10 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -1171,7 +1171,7 @@ def main(*kwargs):
 			[print( x.strip('\n')) for x in ls ]
 			
 	elif args.test_configure:
-		subprocess.call( [tsthelp, "--test-configure"])
+		subprocess.call( ["python", tsthelp, "--test-configure"])
 		
 	elif args.test_start:
 		print("\nIt's recommended to shutdown all regd server instances before testing.")
