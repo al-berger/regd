@@ -63,7 +63,7 @@
  
  
  # Trusted users
- #--------------
+ # -------------
  # The list of account names of users who are granted with 'private' permission level 
  # to all regd servers started from this user account. (These users can execute the full 
  # set of commands, including full access to secure tokens, on regd servers of this 
@@ -73,3 +73,17 @@
  
  # trusted_users = 
  
+ 
+ # Trusted IPs
+ # -----------
+ # The list of space separated IP numbers (in the form: 192.168.1.100) or IP subnets (in
+ # the form: 192.168.1.0/24). 
+ # If this option is set, then IP-based regd servers, started from this user account, 
+ # will accept commands only from IP addresses contained in this list and deny all commands 
+ # from all other IP addresses.
+ # If this option is not set, regd servers, started from this user account, will execute
+ # all commands from any IP address.
+ # If the list takes more than one line, then the second and following lines must be 
+ # indented with a tab or with four spaces.
+ 
+ # trusted_ips =
