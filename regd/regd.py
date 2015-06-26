@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-26 05:56:12"
+__lastedited__ = "2015-06-26 06:36:04"
 
-VERSION = ( 0, 5, 1, 12 )
+VERSION = ( 0, 5, 1, 14 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -659,10 +659,11 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 						for i in trustedIps:
 							if clientIp in i:
 								perm = True
-								log.debug("Client IP is trusted.")
+								log.info("Client IP is trusted.")
 								break 
 						if not perm:
-							log.debug("Client IP is NOT trusted.")
+							log.error("Client IP is NOT trusted : '%s : %s" % 
+									(client_address[0], client_address[1]))
 			else:
 				# File socket server
 				if useruid == uid:
