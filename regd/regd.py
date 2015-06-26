@@ -12,9 +12,9 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-25 22:35:49"
+__lastedited__ = "2015-06-26 05:56:12"
 
-VERSION = ( 0, 5, 0, 11 )
+VERSION = ( 0, 5, 1, 12 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -24,6 +24,7 @@ __license__ = 'GPL'
 rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
 import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd, struct
+import ipaddress
 from datetime import datetime
 from configparser import ConfigParser
 import fcntl, __main__  # @UnresolvedImport
@@ -95,9 +96,6 @@ local_cmds = (SHOW_LOG, TEST_START, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_M
 # Loggers
 log = None
 logtok = None
-
-# Trusted users
-trusted = []
 
 # Exceptions
 
@@ -531,6 +529,10 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 
 	# Default token separator
 	ITEMMARKER = "@#$"
+	
+	# Trusted
+	trustedUserids = []
+	trustedIps = []
 
 	d = {}
 	read_conf( d )
@@ -540,7 +542,19 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 		ITEMMARKER = d["token_separator"]
 	if "encfile_read_cmd" in d:
 		READ_ENCFILE_CMD = d["encfile_read_cmd"]
-	if "trusted_users" in d:
+	if host and "trusted_ips" in d:
+		ips = d["trusted_ips"]
+		if ips:
+			ips = ips.split(' ')
+			for ip in ips:
+				try:
+					ipaddr = ipaddress.IPv4Network(ip)
+				except ValueError:
+					log.warning("Trusted IPv4 %s is not a valid IP mask." % (ip))
+					continue
+				trustedIps.append(ipaddr)
+				
+	elif not host and "trusted_users" in d:
 		trustedNames = d["trusted_users"]
 		if trustedNames:
 			trustedNames = trustedNames.split(' ')
@@ -549,7 +563,7 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 					uid = pwd.getpwnam( un ).pw_uid
 				except:
 					continue
-				trusted.append(uid)
+				trustedUserids.append(uid)
 
 	if data_fd:
 		perstokens.read( data_fd )
@@ -634,12 +648,26 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 				
 			if host:
 				# IP-based server
-				perm = True
+				if not trustedIps:
+					perm = True
+				else :
+					try:
+						clientIp = ipaddress.IPv4Address(client_address[0])
+					except ValueError:
+						log.error("Client IP address format is not recognized.")
+					else:
+						for i in trustedIps:
+							if clientIp in i:
+								perm = True
+								log.debug("Client IP is trusted.")
+								break 
+						if not perm:
+							log.debug("Client IP is NOT trusted.")
 			else:
 				# File socket server
 				if useruid == uid:
 					perm = True
-				elif uid in trusted:
+				elif uid in trustedUserids:
 					perm = True
 				elif cmd not in secure_cmds:
 					if acc == PL_PUBLIC:
@@ -876,7 +904,7 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 				log.error( "Socket error {0}: {1}\nClient address: {2}\n".format( 
 								er.errno, er.strerror, client_address ) )
 
-			if cmd == STOP_SERVER:
+			if cmd == STOP_SERVER and perm:
 				log.info( "Stopping server." )
 				if sockfile:
 					os.unlink( sockfile )
