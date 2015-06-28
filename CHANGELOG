@@ -1,3 +1,14 @@
+Version 0.5.2 (2015-06-28)
+---------------------------
+New features:
+-- auto-start option
+-- the issue with data file locking is fixed 
+
+Version 0.5.1 (2015-06-26)
+---------------------------
+New features:
+- Trusted IPs ('trusted_ips' regd.conf option).
+
 Version 0.5.0 (2015-06-25)
 ---------------------------
 New features:
@@ -6,7 +17,4 @@ New features:
 - Viewing log file (--show-log command).
 - Trusted users ('trusted_users' regd.conf option).
 
-Version 0.5.1 (2015-06-26)
----------------------------
-New features:
-- Trusted IPs ('trusted_ips' regd.conf option).
+
