@@ -8,6 +8,8 @@
 # It is recommended to keep the original unmodified version of 
 # this file for future reference.
 
+# The section header should be present.
+
 [general]
 
 # Default encrypted file name.

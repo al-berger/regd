@@ -463,7 +463,10 @@ is started using the default file name in the directory specified in _datadir_ o
 _regd.conf_. If _--datafile_ option has the value _None_, then persistent tokens will not
 be supported by the server instance: all commands relating to persistent tokens will fail.
 
-     
+### --auto-start  
+If this option is present, then before executing the command, __regd__ will check if the
+server is running at the specified address, and will try to start it if it's not running.
+
 ## CONFIGURATION FILE
 
 The configuration file _regd.conf_ is read on the program 

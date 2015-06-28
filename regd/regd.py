@@ -11,10 +11,11 @@
 *	Copyright:		Albert Berger, 2015.
 *
 *********************************************************************'''
+from io import SEEK_SET
 
-__lastedited__ = "2015-06-26 06:36:04"
+__lastedited__ = "2015-06-28 19:26:00"
 
-VERSION = ( 0, 5, 1, 14 )
+VERSION = ( 0, 5, 2, 15 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -23,7 +24,7 @@ __homepage__ = 'https://github.com/nbdsp/regd'
 __license__ = 'GPL'
 rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
-import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd, struct
+import sys, os, socket, signal, subprocess, logging, argparse, time, re, pwd, struct, tempfile
 import ipaddress
 from datetime import datetime
 from configparser import ConfigParser
@@ -110,8 +111,7 @@ class ISException( Exception ):
 			self.msg = errMsg
 
 	def __str__( self, *args, **kwargs ):
-		return "{0}{1} [{2}]: {3} : {4}".format( self.code, APPNAME,
-								"ERROR" if self.code != 1 else "SUCESS", self.msg, self.cause )
+		return "{0} - {1} : {2}".format( self.code,	self.msg, self.cause )
 
 programError		 = 0
 success				 = 1
@@ -121,10 +121,13 @@ valueAlreadyExists	 = 4
 operationFailed		 = 5
 permissionDenied	 = 6
 persistentNotEnabled = 7
+cannotConnectToServer= 8
+objectNotExists		 = 9
 
 errStrings = ["Program error", "Operation successfull", "Unknown data format", "Value doesn't exist", "Value already exists",
 			"Operation failed", "Permission denied", 
-			"Persistent tokens are not enabled on this server"]
+			"Persistent tokens are not enabled on this server", "Cannot connect to server",
+			"Object doesn't exist"]
 
 
 def signal_handler( signal, frame ):
@@ -260,6 +263,30 @@ def read_sec_file( filename, cmd, tok ):
 		else:
 			add_token( tok, curSect + ":" + s )
 
+def read_locked( fd, cp, bOverwrite=False ):
+	try:
+		s = fd.read()
+		if bOverwrite:
+			cp.clear()
+				
+		cp.read_string( s )
+	except OSError as e:
+		raise ISException( operationFailed, e.strerror )
+	
+def write_locked( fd, cp ):
+	try:
+		fp = tempfile.TemporaryFile("w+", encoding='utf-8')
+		cp.write( fp, True )
+		fp.flush()
+		fp.seek(SEEK_SET, 0)
+		s = fp.read()
+		fd.seek(SEEK_SET, 0)
+		fd.truncate()
+		fd.write( s )
+		fd.flush()
+	except OSError as e:
+		raise ISException( operationFailed, e.strerror )
+		
 def escaped( s, idx ):
 	'''Determines if a character is escaped'''
 	# TODO: I couldn't come up with a reliable way to determine whether a character is 
@@ -419,29 +446,21 @@ def statReg(cp):
 		m['avg_key_length'] /= m['num_of_tokens']
 		m['avg_value_length'] /= m['num_of_tokens']
 	return m
-					
-			
-def Client( item, sockfile=None, host=None, port=None ):
-	'''
-	"Client" function. Performs requests to a running server.
-	'''
-	log.debug("item={0}; sock={1}; host={2}; port={3}".format( item, sockfile, host, port ))
+
+def connectToServer( sockfile=None, host=None, port=None, tmout=3 ):
 	if host:
 		if not port:
-			return "0Error: port number is not provided."
+			raise ISException( unknownDataFormat, "Port number is not provided." )
 		# Create an Internet socket
 		sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
 	else:
 		if not os.path.exists( _sockfile ):
-			return "0Server isn't running on {0}.".format( sockfile )
+			raise ISException( objectNotExists, sockfile, "Server's socket file doesn't exist" )
 				
 		sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
 		sock.setsockopt(socket.SOL_SOCKET, socket.SO_PASSCRED, 1)
 		
-	if item.find( "_sec " ) != -1 or item.endswith( "_sec" ):
-		sock.settimeout( 30 )
-	else:
-		sock.settimeout( 3 )
+	sock.settimeout( tmout )
 
 	try:
 		if host:
@@ -449,9 +468,36 @@ def Client( item, sockfile=None, host=None, port=None ):
 		else:
 			sock.connect( sockfile )
 	except OSError as er:
-		resp = "0regd: connectServer: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
-												er.errno, er.strerror, sockfile, host, port )
-		return resp
+		raise ISException( cannotConnectToServer, 
+						"Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
+												er.errno, er.strerror, sockfile, host, port ) )
+	
+	return sock	
+
+def checkConnection(sockfile=None, host=None, port=None):
+	try:
+		sock = connectToServer(sockfile, host, port, 3)
+	except ISException:
+		return False
+	
+	sock.shutdown( socket.SHUT_RDWR )
+	sock.close()
+	return True
+	
+def Client( item, sockfile=None, host=None, port=None ):
+	'''
+	"Client" function. Performs requests to a running server.
+	'''
+	log.debug("item={0}; sock={1}; host={2}; port={3}".format( item, sockfile, host, port ))
+	
+	tmout = 3
+	if item.find( "_sec " ) != -1 or item.endswith( "_sec" ):
+		tmout = 30
+		
+	try:
+		sock = connectToServer(sockfile, host, port, tmout)
+	except ISException as e:
+		return str(e)
 
 	try:
 		# Creating packet: <data><endOfDataMarker>
@@ -566,7 +612,11 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 				trustedUserids.append(uid)
 
 	if data_fd:
-		perstokens.read( data_fd )
+		try:
+			read_locked(data_fd, perstokens, True )
+		except ISException as e:
+			log.error( "Cannot read the data file: %s" % ( str(e)))
+			return -1
 
 	signal.signal( signal.SIGINT, signal_handler )
 	signal.signal( signal.SIGTERM, signal_handler )
@@ -624,11 +674,16 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 		data = bytearray()
 		try:
 			while True:
-				data.extend( connection.recv( 4096 ) )
+				newdata = connection.recv( 4096 )
+				if not len( newdata ):
+					break
+				data.extend( newdata )
 				datalen = len( data )
 				if datalen >= eodsize and data[-eodsize:].decode( 'utf-8' ) == EODMARKER:
 					break
-
+			
+			if not ( len(data) >= eodsize and data[-eodsize:].decode( 'utf-8' ) == EODMARKER):
+				continue
 			data = data[:-eodsize].decode( 'utf-8' )
 			log.info( "command received: {0}".format( data ) )
 
@@ -638,7 +693,14 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 			# >1 - operation unsuccessful (e.g. key doesn't exist)
 			resp = "0"
 			cmd = ""
-			perm = False			 
+			perm = False
+			
+			# Server commands and regd command line commands and options are two different sets:
+			# the latter is the CL user interface, and the former is the internal communication 
+			# protocol.
+			# Regd receives commands from the command line and converts it to server command syntax. 
+			# The main difference between the two is that the server's command packet consists of
+			# only one command[data] pair and doesn't support options. 
 
 			if data.startswith( CMDMARKER ):
 				data = data[cmdmarksize:]
@@ -740,7 +802,7 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 					'''Strict add: fails if the token already exists.'''
 					try:
 						add_token( perstokens, data, noOverwrite = True )
-						perstokens.write( data_fd, True )
+						write_locked( data_fd, perstokens )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
@@ -748,7 +810,7 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 				elif cmd == SET_TOKEN_PERS:
 					try:
 						add_token( perstokens, data )
-						perstokens.write( data_fd, True )
+						write_locked( data_fd, perstokens )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
@@ -775,7 +837,7 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 							data = data[( pl + itemmarksize ):]
 
 						add_token( perstokens, data )
-						perstokens.write( data_fd, True )
+						write_locked( data_fd, perstokens )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
@@ -824,8 +886,8 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 					'''Add persistent tokens from a file.'''
 					try:
 						if os.path.exists( data ):
-							perstokens.read( data )
-							perstokens.write( data_fd, True )
+							read_locked( data_fd, perstokens, False)
+							write_locked( data_fd, perstokens )
 							resp = "1"
 						else:
 							resp = "{0}File not found: {1}".format( valueNotExists, data )
@@ -861,7 +923,7 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 				elif cmd == REMOVE_TOKEN_PERS:
 					try:
 						remove_token( perstokens, data )
-						perstokens.write( data_fd, True )
+						write_locked( data_fd, perstokens )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
@@ -869,7 +931,7 @@ def Server( servername, sockfile=None, host=None, port=None, acc=PL_PRIVATE ):
 				elif cmd == REMOVE_SECTION_PERS:
 					try:
 						remove_section( perstokens, data )
-						perstokens.write( data_fd, True )
+						write_locked( data_fd, perstokens )
 						resp = "1"
 					except ISException as e:
 						resp = str( e )
@@ -954,6 +1016,7 @@ def main(*kwargs):
 	parser.add_argument( '--access', help = 'Access level for the server: private, public_read or public.' )
 	parser.add_argument( '--datafile', help = 'File for reading and storing persistent tokens.' )
 	parser.add_argument( '--no-verbose', action='store_true', help = 'Only output return code numbers.' )
+	parser.add_argument( '--auto-start', action='store_true', help = 'If regd server is not running, start it before executing the command.' )
 	group.add_argument( '--version', action='store_true', help = 'Print regd version.' )
 	group.add_argument( clp(START_SERVER), action = "store_true", help = 'Start server' )
 	group.add_argument( clp(STOP_SERVER), action = "store_true", help = 'Stop server' )
@@ -1052,7 +1115,7 @@ def main(*kwargs):
 	
 	# Test module
 	tstdir=os.path.dirname(os.path.realpath(__file__)) + "/testing"
-	tst = tstdir + "/tests.py"
+	#tst = tstdir + "/tests.py"
 
 	# Test helper module.
 	tsthelp = tstdir+"/test_help.py"
@@ -1060,6 +1123,31 @@ def main(*kwargs):
 	# Handling command line
 	
 	# Server commands
+	
+	if args.auto_start:
+		if not checkConnection(_sockfile, host, port):
+			opts=[__file__, "--start"]
+			if host: 
+				opts.append("--host");
+				opts.append(host)
+			if port: 
+				opts.append("--port");
+				opts.append(port)
+			if args.server_name: 
+				opts.append("--server-name");
+				opts.append(args.server_name)
+			if args.access: 
+				opts.append("--access");
+				opts.append(args.access)
+			if args.datafile: 
+				opts.append("--datafile");
+				opts.append(args.datafile)
+			if args.log_level:
+				opts.append("--log-level");
+				opts.append(args.log_level)
+			log.info("The server isn't running. Autostarting with arguments:%s" % (str(opts)))
+			subprocess.Popen(opts)
+			time.sleep(2)
 
 	if args.start:
 		
@@ -1128,16 +1216,21 @@ def main(*kwargs):
 				datafile = servername + ".data"
 			
 			datafile = DATADIR + datafile
+			if not os.path.exists( datafile ):
+				fp = open( datafile, "w")
+				fp.write("")
+				fp.close()				
 		
 		log.debug( "datafile: %s" % datafile )
 		
 		if datafile:
 			# Obtaining the lock
 			try:
-				data_fd = open( datafile, "w" )
-				data_fd = fcntl.lockf( data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
+				data_fd = open( datafile, "r+", buffering=1 )
+				log.debug("Data file fileno: %i" % (data_fd.fileno()))
+				fcntl.lockf( data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
 			except OSError as e:
-				print("Error: data file \"{0}\" could not be opened.".format(datafile), 
+				print("Error: data file \"{0}\" could not be opened: {1}".format(datafile, e.strerror), 
 				"Probably it's already opened by another process. Server is not started.")
 				return -1
 		else:
