@@ -12,14 +12,14 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-06-25 22:35:35"
+__lastedited__ = "2015-07-06 03:53:48"
 
 
-import sys, os, socket, argparse, logging, time, re, pwd
+import sys, os, argparse, logging, time, re, pwd
 import subprocess as sp
 from configparser import ConfigParser
 # import regd
-from regd import regd
+import regd.util as util, regd.defs as defs, regd.stor as stor
 
 log = None
 tstconf = None
@@ -39,86 +39,25 @@ def setLog( loglevel, logtopics = None ):
 
 
 
-def regdcmd( cmd = None, data = None, servername = None, host = None, port = None ):
-	if host:
-		# Create an Internet socket
-		sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-	else:
-		# Create a UDS socket
-		sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
-
-		try:
-			atuser, servername = regd.parse_server_name( servername )
-		except regd.ISException as e:
-			print( e )
-			return e.code
-
-		_, sockfile = regd.get_filesock_addr( atuser, servername )
-
-
-	if cmd and ( cmd.find( "_sec " ) != -1 or cmd.endswith( "_sec" ) ):
-		# Time to enter the password
-		sock.settimeout( 30 )
-	else:
-		sock.settimeout( 3 )
+def regdcmd( cmd = None, data = None, servername = None, host = None, port = None, opt=None ):
 
 	try:
-		if host:
-			sock.connect( ( host, port ) )
-		else:
-			sock.connect( sockfile )
-	except OSError as er:
-		print( "Socket error %d: %s\nServer address: %s",
-				er.errno, er.strerror, sockfile )
-		return False, 0
+		atuser, servername = util.parse_server_name( servername )
+	except util.ISException as e:
+		print( e )
+		return e.code
 
-	res = False
-
-	try:
-		# Send data
-		if cmd:
-			if cmd.startswith( "--" ):
-				cmd = cmd[2:]
-			cmd = cmd.replace( '-', '_' )
-			if not cmd.startswith( regd.CMDMARKER ):
-				cmd = regd.CMDMARKER + cmd
-
-			data = cmd + ' ' + data
-
-		bPacket = bytearray( data + regd.EODMARKER, encoding = 'utf-8' )
-
-		sock.sendall( bPacket )
-
-		data = bytearray()
-		eodsize = len( regd.EODMARKER )
-		# Format of the response packet: <4b: packet length><4b: response code>[data]
-		while True:
-			data.extend( sock.recv( 4096 ) )
-			datalen = len( data )
-			if datalen >= eodsize and data[-eodsize:].decode( 'utf-8' ) == regd.EODMARKER:
-				break
-
-		data = data[:-eodsize].decode( 'utf-8' )
-
-		# res = struct.unpack_from("L", data, offset=0)[0]
-
-		sock.shutdown( socket.SHUT_RDWR )
-		sock.close()
-
-		if data[0] != '1':
-			res = False
-		else:
-			res = True
-		ret = data[1:]
-	except OSError:
-		pass
-	finally:
-		try:
-			sock.shutdown( socket.SHUT_RDWR )
-			sock.close()
-		except:
-			pass
-
+	_, sockfile = util.get_filesock_addr( atuser, servername )
+	
+	import regd.cli
+	data = regd.cli.Client( (cmd, data), opt, sockfile, host, port)
+		
+	if data[0] != '1':
+		res = False
+	else:
+		res = True
+	ret = data[1:]
+		
 	return res, ret
 
 #rc = os.path.dirname( __file__ ).rpartition( '/' )[0] + "/regd.py"
@@ -305,7 +244,7 @@ class TestReg:
 			time.sleep( 2 )
 		except sp.CalledProcessError as e:
 			print( rc, "--start", "returned non-zero:", e.output )
-			raise regd.ISException( regd.operationFailed )
+			raise util.ISException( util.operationFailed )
 
 	def sendCmd( self, *args_ ):
 		args = [rc] + list( args_ )
@@ -341,7 +280,7 @@ class TestReg:
 					return False
 			except sp.CalledProcessError as e:
 				print( rc, cmd, "\nreturned non-zero:", e.output, "\n", cur )
-				raise regd.ISException( regd.operationFailed )
+				raise util.ISException( util.operationFailed )
 			
 			if fb: fb()
 
@@ -371,7 +310,7 @@ class TestReg:
 
 			except sp.CalledProcessError as e:
 				print( rc, getCmd, "returned non-zero:", e.output )
-				raise regd.ISException( regd.operationFailed )
+				raise util.ISException( util.operationFailed )
 			
 			if fb: fb()
 
@@ -384,7 +323,7 @@ class TestReg:
 		if s[-1] == '\\': s += ' '
 		if n[-1] == '\\': n += ' '
 		tok = "{0}:{1}={2}".format( s.replace( ":", "\:" ), n.replace( "=", "\=" ), v )
-		cmd = clp( regd.ADD_TOKEN )
+		cmd = clp( defs.ADD_TOKEN )
 		try:
 			res = self.sendCmd( cmd, tok )
 		except sp.CalledProcessError as e:
@@ -395,7 +334,7 @@ class TestReg:
 			print( cmd, "failed:", res )
 			return False
 
-		cmd = clp( regd.GET_TOKEN )
+		cmd = clp( defs.GET_TOKEN )
 		key = "{0}:{1}".format( s.replace( ":", "\:" ), n )
 		try:
 			res = self.sendCmd( cmd, key )
@@ -412,7 +351,7 @@ class TestReg:
 			print( "Value and check don't match:\n  {0}\n  {1}".format( res[1:], v ) )
 			return False
 
-		cmd = clp( regd.REMOVE_TOKEN )
+		cmd = clp( defs.REMOVE_TOKEN )
 		try:
 			res = self.sendCmd( cmd, key )
 			res = res[:-1].decode( 'utf-8' )
@@ -616,12 +555,12 @@ def do_basic_test():
 def basic_test_debug():
 	global tok_checks, toksections, toknames, tokvalues
 
-	regd.setLog( "WARNING", "tokens" )
+	util.setLog( "WARNING", "tokens" )
 	# regd.setLog( "WARNING" )
 
 	if 1:
 		tok = "\\\:\:= \\\: \\==:\\:=\\::= \\: \\=="
-		sec, nam, val = regd.parse_token( tok )
+		sec, nam, val = stor.parse_token( tok )
 		print( sec, nam, val )
 		return
 
@@ -822,7 +761,7 @@ def main( *kwargs ):
 	args = parser.parse_args( *kwargs )
 
 	# Config file
-	CONFDIR = regd.get_conf_dir()
+	CONFDIR = util.get_conf_dir()
 	if not os.path.exists( CONFDIR ):
 		try:
 			os.makedirs( CONFDIR )
