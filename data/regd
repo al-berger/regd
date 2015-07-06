@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-from regd import regd
+from regd import cli
 
 
-regd.main( sys.argv[1:] )
+cli.main( sys.argv[1:] )

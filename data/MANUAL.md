@@ -292,9 +292,12 @@ Same as __--load__, but adds persistent tokens, rather
 than session ones.
 
 ### --load-file <_filename_>
-Add session tokens from a file. _filename_ - the path
-of the file with tokens. The file must contain "name=value"
-pairs with one pair per line.
+Add session tokens from a text file. _filename_ - the path of the file with tokens. 
+The token representation must follow the same rules as for tokens added from the command
+line (see NOTES section below). 
+A single token can span several lines, in which case all lines beginning from the second must start with either a single tab or with a single space character (all tabs and spaces beyond the first one are considered a part of the token). 
+If tokens must be added into several sections, the section names should be specified in the file in square brackets in the beginning of each section. If the file doesn't
+contain section names, the tokens are loaded into 'general' section.
 
 ### --load-file-pers <_filename_>
 Same as __--load-file__, but adds persistent tokens, rather
