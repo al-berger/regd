@@ -10,44 +10,88 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-06 03:45:28"
+__lastedited__="2015-07-07 04:36:58"
 
 import re, subprocess, tempfile, os
 from regd.util import log, logtok, ISException, unknownDataFormat, operationFailed, \
 	objectNotExists, valueAlreadyExists, valueNotExists
 
-GLSEC = "global"
 SECTIONPATT="^\[(.*)\]$"
 SECTIONNAMEPATT="^(.*?)(?<!\\\):(.*)"
 TOKENPATT="^(.*?)(?<!\\\)=(.*)"
 MULTILINETOKENPATT="^[ \t](.*)$"
 
-def read_tokens_from_lines( lines, st, pref ):
+rootdirs = ["/ses", "/sav"]
+
+class Stor(dict):
+	both		= 1
+	tokens		= 2
+	sections 	= 3
+	all 		= 4
+	tokensAll	= 5
+	sectionsAll	= 6
+	
+	def __init__(self, name=''):
+		self.name = name
+	
+	def numItems(self, itemType=both):
+		cnt = None
+		if itemType == Stor.both:
+			cnt = len( self )
+		elif itemType in ( Stor.tokens, Stor.tokensAll ):
+			cnt = 0
+			for k in self.keys():
+				if type( self[k] ) is str:
+					cnt += 1
+				elif itemType == Stor.tokensAll:
+					cnt += self[k].numItems(Stor.tokensAll)
+					
+		elif itemType in ( Stor.sections, Stor.sectionsAll ):
+			cnt = 0
+			for k in self.keys():
+				if type( self[k] ) is Stor:
+					cnt += 1
+					if itemType == Stor.sectionsAll:
+						cnt += self[k].numItems(Stor.sectionsAll)
+		elif itemType == Stor.all:
+			cnt = self.tokensAll() + self.sectionsAll()
+		else:
+			raise ISException()
+		
+		
+def getstor(name=''):
+	return Stor(name)
+
+def isPathValid( path ):
+	for d in rootdirs:
+		if path.startswith( d ):
+			return True
+	return False
+
+def read_tokens_from_lines( lines, dest, noOverwrite=True ):
 	reSect=re.compile(SECTIONPATT)
 	reTok=re.compile(TOKENPATT, re.DOTALL)
 	reMlTok=re.compile(MULTILINETOKENPATT)
 	reNonempty=re.compile("(\S.*)")
 
-	if not pref: pref = ""
-	curSect = GLSEC
+	curPath = ''
 	curTok = None
 	
 	def flush():
-		nonlocal curTok, curSect, st
+		nonlocal curTok, curPath, dest
 		if curTok:
 			mtok = reTok.match(curTok)
 			if mtok.lastindex != 2:
 				raise ISException(unknownDataFormat, l, "Cannot parse token.")
-			if curSect not in st:
-				st[curSect] = {}
-			st[curSect][mtok.group(1)] = pref + mtok.group(2)
+			add_token(dest, curPath + curTok, noOverwrite)
 			curTok = None
 			
 	for l in lines:
 		m = reSect.match(l)
 		if m:
 			flush()
-			curSect = m.group(1)
+			curPath = m.group(1)
+			if curPath[-1] != '/': curPath += "/"
 			continue
 		
 		m = reMlTok.match(l)
@@ -62,7 +106,7 @@ def read_tokens_from_lines( lines, st, pref ):
 			flush()
 			curTok = m.group(1)
 				
-def read_sec_file( filename, cmd, tok, sect=None, pref=None ):
+def read_sec_file( filename, cmd, tok, sect=None ):
 	if not os.path.exists( filename ):
 		log.error( "Cannot find encrypted data file. Exiting." )
 		raise ISException( operationFailed, "File not found." )
@@ -78,19 +122,23 @@ def read_sec_file( filename, cmd, tok, sect=None, pref=None ):
 	ftxt = ftxt.decode( 'utf-8' )
 	ltxt = ftxt.split( "\n" )
 
-	m={}
-	read_tokens_from_lines(ltxt, m, pref)
+	m=getstor()
+	read_tokens_from_lines(ltxt, m)
+	# If destination section is specified and if the file contains only one section -
+	# rename.
 	if sect and len( list(m.keys()) ) == 1:
 		key = list(m.keys())[0]
 		m[sect] = m[key]
 		del m[key]
+		
+	tok.update( m )
 			
-def read_tokens_from_file(filename, tok, sect=None, pref=None, overwrite=False):
+def read_tokens_from_file(filename, tok, sect=None, noOverwrite=False):
 	'''Reads tokens from a text file. If the file contains several sections, their names
 	should be specified in the file in square brackets in the beginning of each section.
 	If tokens are loaded into a single section, its name can be specified either in the 
 	file, or in the 'sect' parameter (which overrides the section name in the file if it
-	exists), or if the section name is not specified, tokens are loaded into 'general' section.
+	exists), or if the section name is not specified, tokens are loaded into the root section.
 	'''
 	if not os.path.exists(filename):
 		raise ISException(objectNotExists, filename, "File with tokens is not found.")
@@ -98,8 +146,8 @@ def read_tokens_from_file(filename, tok, sect=None, pref=None, overwrite=False):
 	with open(filename) as f:
 		lines = f.readlines()
 	
-	m = {}
-	read_tokens_from_lines(lines, m, pref)
+	m = getstor()
+	read_tokens_from_lines(lines, m, noOverwrite)
 				
 	if sect and len( list(m.keys()) ) == 1:
 		key = list(m.keys())[0]
@@ -139,11 +187,14 @@ def write_locked( fd, tok ):
 	except OSError as e:
 		raise ISException( operationFailed, e.strerror )
 	
+# Items manipulation commands (with "Item" or "Section" in name) must receive
+# the path argument in the form of directories list.
+	
 def insertItem( m, path, nam, val, noOverwrite=True):
 	curmap = m
 	for k in path:
 		if k not in curmap:
-			curmap[k] = {}
+			curmap[k] = getstor(k)
 		curmap = curmap[k]
 	if nam in curmap:
 		raise ISException(valueAlreadyExists, "/".join(path) + "/" + nam)
@@ -184,7 +235,7 @@ def removeItem( m, path, num=0):
 
 def getItemsTree(m, l, indent=0):
 	for k,v in m.items():
-		if type( v ) is dict:
+		if isinstance( v, dict):
 			l.append( ' '*indent + '[' + k + ']' )
 			getItemsTree( m[k], l, indent + 4 )
 		else:
@@ -196,10 +247,10 @@ def getItemsList( m, l, p=""):
 			curpath = p + '/' + k
 		else:
 			curpath = "/" + k
-		if type( v ) is dict:
+		if isinstance( v, dict):
 			getItemsList(m[k], l, curpath )
 		else:
-			l.append( curpath + "=" + v )		
+			l.append( curpath + " = " + v )		
 	
 def listItems(m, path, l, tree=False):
 	if path:
@@ -226,11 +277,11 @@ def escaped( s, idx, sym='\\' ):
 	# >>> len('\\\a')
 	# >>> 2	
 	# Because of this there is a rule that separators must not be preceded with a backslash.
-	# If an item ends with backslash, a whitespace must be inserted between backslash and
-	# separator (this whitespace won't be considered a part of the token). 
-	# The same is true if a token ends with whitespace: another white space should be inserted
-	# between whitespace and separator. This is for allowing equivalence of two variants:
-	# 'a=b' and 'a = b'.
+	# If an item ends with backslash, a whitespace must be inserted between the backslash and
+	# the separator (this whitespace won't be considered a part of the token). 
+	# The same is true if a token part ends with whitespace: another white space should be 
+	# inserted between the whitespace and separator. This is for allowing the equivalence of 
+	# two variants: 'a=b' and 'a = b'.
 	if not ( s and idx ):
 		return False
 	
@@ -253,7 +304,13 @@ def escapedpart( tok, sep, second=False ):
 	if not tok:
 		return (None, None)
 	idx = -1
-	start = 1
+	start = 0
+	
+	# Special case: separator as the first character
+	if tok[0] == sep:
+		tok = tok[1:]
+		return ('', tok)
+		
 	while True:
 		idx = tok.find( sep, start )
 		if ( idx == -1 ) or not escaped(tok, idx): 
@@ -271,12 +328,23 @@ def escapedpart( tok, sep, second=False ):
 		
 	return (l, r)
 
-def parse_token( tok, second=True ):
+def parse_token( tok, bNam=True, bVal=True ):
 	logtok.debug( "tok: {0}".format( tok ) )
 	path = []
 	while True:
-		sec, tok = escapedpart( tok, "/", True )
-		if sec:
+		#sec, tok = escapedpart( tok, "/", bNam )
+		# Slashes are not allowed in section names
+		sec,_,tok = tok.partition('/')
+		if not tok and sec and bNam:
+			tok = sec
+			sec = None
+		
+		if sec != None:
+			# Null character as a subdirectory name is not allowed 
+			if not len( sec ) and len( path ):
+				if tok:
+					raise ISException(unknownDataFormat)
+				break
 			# One whitespace before and after separator is not part of the token
 			sec = stripOne(sec, False, True)
 			tok = stripOne(tok, True, False)
@@ -286,7 +354,7 @@ def parse_token( tok, second=True ):
 
 	logtok.debug( "section: {0} : option: {1}".format( "/".join( path ), tok ) )
 
-	if second:
+	if bVal:
 		nam, val = escapedpart(tok, "=")
 		nam = stripOne( nam, False, True ) if nam else None
 		val = stripOne( val, True, False ) if val else None
@@ -295,9 +363,6 @@ def parse_token( tok, second=True ):
 		val = None
 
 	logtok.debug( "name: {0} = value: {1}".format( nam, val ) )
-
-	if not sec:
-		sec = GLSEC
 		
 	return (path, nam, val)
 
@@ -310,15 +375,15 @@ def add_token( cp, tok, noOverwrite=True ):
 	insertItem(cp, path, nam, val, noOverwrite)
 
 def get_token( cp, tok ):
-	path, nam, _ = parse_token( tok, False )
+	path, nam, _ = parse_token( tok, bVal=False )
 	
 	if not nam:
 		raise ISException( unknownDataFormat, tok )
 
-	getItem(cp, path, nam)
+	return getItem(cp, path, nam)
 
 def remove_token( cp, tok ):
-	path, nam, _ = parse_token( tok, False )
+	path, nam, _ = parse_token( tok, bVal=False )
 
 	if not nam:
 		raise ISException( unknownDataFormat, tok )
@@ -326,11 +391,13 @@ def remove_token( cp, tok ):
 	removeItem( cp, path + [nam])
 
 def remove_section( cp, sec ):
-	path, _, _ = parse_token(sec, False)
+	path, _, _ = parse_token(sec, bNam=False, bVal=False)
 		
 	removeItem( cp, path )
 
 def list_tokens( cp, path = None, tree=False ):
+	if path:
+		path,_,_ = parse_token(path, bNam=False, bVal=False)
 	l = []
 	listItems(cp, path, l, tree)
 	return "\n".join( l )

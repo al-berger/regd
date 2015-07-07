@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-06 03:53:48"
+__lastedited__ = "2015-07-07 04:54:16"
 
 
 import sys, os, argparse, logging, time, re, pwd
@@ -83,6 +83,16 @@ testtokens = [
 "фжÅ»«ЭФ¿¡Ц¨¶щцяЮб"
 ]
 
+testParts = [
+"aaa",
+"bbb"
+]
+
+btestParts = [
+b'\x97\x97\x97',
+b'\x98\x98\x98',
+]
+
 toksections = [
 "section1",
 "section2",
@@ -103,10 +113,132 @@ tokvalues = [
 
 
 class TokenFeeder:
+	modeToken = 1
+	modeKeyVal = 2
+	modeKey = 3
+	modeTokenB = 4
+	modeKeyValB = 5
+	modeKeyB = 6
+	
+	class TFit:
+		def __init__(self, tf, binary=False):
+			self.cnt = 0
+			self.tf = tf
+			self.binary = binary
+	
+	class TokenIt(TFit):
+		def __init__(self, tf, binary=False):
+			super(TokenFeeder.TokenIt, self).__init__(tf, binary)
+		
+		def __next__(self):
+			if self.binary:
+				tk = self.tf.getTokenB( self.cnt )
+				tok = tk[0][0] + bytes(b' /') + tk[0][1] + bytes(b' =') + tk[0][2]
+				tok = (tok, tk[1])
+			else:
+				tk = self.tf.getToken( self.cnt )
+				tok = ( tk[0][0]+" /"+tk[0][1]+" ="+tk[0][2], tk[1] )
+				
+			self.cnt += 1
+			return tok
+		
+	class KeyValIt(TFit):
+		def __init__(self, tf, binary=False):
+			super(TokenFeeder.KeyValIt, self).__init__(tf, binary)
+		
+		def __next__(self):
+			if self.binary:
+				tok = self.tf.getTokenB( self.cnt )
+				key = tok[0][0] + bytes(b' /') + tok[0][1]
+				val = tok[0][2]
+			else:
+				tok = self.tf.getToken( self.cnt )
+				key = tok[0][0] + ' /' + tok[0][1]
+				val = tok[0][2]
+				
+			self.cnt += 1
+			return ( key, val, tok[1] )
+		
+	class KeyIt(TFit):
+		def __init__(self, tf, binary=False):
+			super(TokenFeeder.KeyIt, self).__init__(tf, binary)
+		
+		def __next__(self):
+			if self.binary:
+				tok = self.tf.getTokenB( self.cnt )
+				key = tok[0][0] + bytes(b' /') + tok[0][1]
+			else:
+				tok = self.tf.getToken( self.cnt )
+				key = tok[0][0] + ' /' + tok[0][1]
+				
+			self.cnt += 1
+			return ( key, tok[1] )
+	
+	def __init__( self, parts, bparts, num = None ):
+		self.parts = parts
+		self.bparts = bparts
+		self.n = len( parts )
+		self.mode = TokenFeeder.modeToken
+		self.num = 0
+		self.num = num if num != None and num < self.__len__() and num > 0 else self.__len__()
+
+	def __iter__( self ):
+		if self.mode == TokenFeeder.modeToken:
+			return TokenFeeder.TokenIt( self )
+		elif self.mode == TokenFeeder.modeKeyVal:
+			return TokenFeeder.KeyValIt( self )
+		elif self.mode == TokenFeeder.modeKey:
+			return TokenFeeder.KeyIt( self )
+
+	def __len__( self ):
+		return self.num if self.num else self.n ** 3
+
+	def getToken( self, cnt ):
+		if cnt >= self.__len__():
+			raise StopIteration()
+		ni = cnt % self.n
+		vi = (cnt // self.n ) % self.n
+		si2 = (cnt // self.n) % self.n 
+		si1 = (cnt // self.n ** 2 ) % self.n
+		s1 = self.parts[si1]
+		s2 = self.parts[si2]
+		n = self.parts[ni]
+		v = self.parts[vi]
+		cur = "{0}-{1}-{2}-{3} ({4})".format( si1, si2, ni, vi, cnt )
+		return ( ( s1 + " /" + s2, n, v ), cur )
+	
+	def getTokenB( self, cnt ):
+		if cnt >= self.__len__():
+			raise StopIteration()
+		si1 = cnt // self.n
+		si2 = cnt % self.n
+		ni = cnt % self.n
+		vi = cnt // self.n
+		s1 = bytearray( self.bparts[si1] )
+		s2 = bytearray( self.bparts[si2] )
+		n = bytearray ( self.bparts[ni] )
+		v = bytearray( self.bparts[vi] )
+		s = s1
+		s.append(b'\x32')
+		s.append(b'\x92')
+		s.extend(s2)
+		
+		cur = "{0}-{1}-{2}-{3} ({4})".format( si1, si2, ni, vi, cnt )
+		return ( ( s, n, v ), cur )
+
+	def setMode( self, mode ):
+		if mode < 1 or mode > 6:
+			raise util.ISException(util.unrecognizedParameter)
+		self.mode = mode
+
+	def getTokenParts( self, si1, si2, ni, vi ):
+		return ( self.parts[si1], self.parts[si2], self.parts[ni], self.parts[vi] )
+
+class TokenFeeder1:
 	def __init__( self, sec, nam = None, val = None, num = None ):
 		self.sec = sec
 		self.nam = nam if nam else self.sec
-		self.val = val if val else self.sec
+		self.val = val if val else self.nam
 		self.cnt = 0
 		self.num = num if num != None and num < self.__len__() and num > 0 else self.__len__()
 
@@ -117,10 +249,11 @@ class TokenFeeder:
 		return len( self.sec ) * len( self.nam )
 
 	def __next__( self ):
-		if self.cnt >= self.len:
+		if self.cnt >= self.__len__():
 			raise StopIteration()
 		si = self.cnt // len( self.sec )
 		ni = self.cnt % len( self.nam )
+		vi = self.cnt % len( self.m )
 		s = self.sec[si]
 		n = self.nam[ni]
 		v = self.val[si]
@@ -134,7 +267,7 @@ class TokenFeeder:
 	def getToken( self, si, ni, vi ):
 		return ( self.sec[si], self.nam[ni], self.val[vi] )
 
-class TokenStringFeeder( TokenFeeder ):
+class TokenStringFeeder( TokenFeeder1 ):
 	def __init__( self, sec, nam = None, val = None, num = None ):
 		super( TokenStringFeeder, self ).__init__( sec, nam, val, num )
 
@@ -152,7 +285,7 @@ class TokenStringFeeder( TokenFeeder ):
 		self.cnt += 1
 		return ( tok, cur )
 
-class ChecksFeeder( TokenFeeder ):
+class ChecksFeeder( TokenFeeder1 ):
 	def __init__( self, sec, nam = None, val = None, num = None ):
 		super( ChecksFeeder, self ).__init__( sec, nam, val, num )
 
@@ -169,7 +302,7 @@ class ChecksFeeder( TokenFeeder ):
 		self.cnt += 1
 		return ( checkkey, checkval, cur )
 
-class KeysFeeder( TokenFeeder ):
+class KeysFeeder( TokenFeeder1 ):
 	def __init__( self, sec, nam = None, num = None ):
 		super( KeysFeeder, self ).__init__( sec, nam = nam, num = num )
 
@@ -217,7 +350,7 @@ class TestReg:
 		global log
 		log.info( "Creating registry %s" % self.servName )
 		try:
-			args = [rc, "--start"]
+			args = [rc, "start"]
 			if self.servName:
 				args.append( sn )
 				args.append( self.servName )
@@ -289,7 +422,7 @@ class TestReg:
 		return True
 
 
-	def compare( self, getCmd, checks, fb=None ):
+	def compare( self, getCmd, checks, binary=False, fb=None ):
 		global log
 		log.info( "Comparing registry %s" % self.servName )
 		'''Compares the contents of the registry with the 'tokens' list.'''
@@ -297,7 +430,8 @@ class TestReg:
 		for key, val, cur in checks:
 			try:
 				res = self.sendCmd( getCmd, key )
-				res = res[:-1].decode( 'utf-8' )
+				if not binary:
+					res = res[:-1].decode( 'utf-8' )
 
 				if res[0] != '1':
 					print( getCmd, "failed:", res, "\n", cur )

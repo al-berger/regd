@@ -10,9 +10,9 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-06 06:16:56"
+__lastedited__="2015-07-07 07:37:29"
 
-VERSION = ( 0, 6, 0, 16 )
+VERSION = ( 0, 6, 0, 17 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -44,7 +44,7 @@ START_SERVER		= "start"
 STOP_SERVER			= "stop"
 RESTART_SERVER		= "restart"
 CHECK_SERVER		= "check"
-REPORT				= "report"
+REPORT				= "what"
 SHOW_LOG			= "show_log"
 LIST				= "ls"
 SET_TOKEN			= "set"
@@ -72,6 +72,7 @@ TEST_START			= "test_start"
 TEST_CONFIGURE		= "test_configure"
 TEST_MULTIUSER_BEGIN= "test_multiuser_begin"
 TEST_MULTIUSER_END 	= "test_multiuser_end"
+VERS				= "version"
 
 # Command options
 DEST				= "dest"
@@ -92,7 +93,7 @@ all_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, CHECK_SERVER, REPORT,
 			LOAD_FILE, LOAD_FILE_PERS, LOAD_FILE_SEC, GET_TOKEN, GET_TOKEN_PERS, GET_TOKEN_SEC,
 			REMOVE_TOKEN, REMOVE_TOKEN_PERS, REMOVE_TOKEN_SEC, REMOVE_SECTION, REMOVE_SECTION_PERS,
 			REMOVE_SECTION_SEC, CLEAR_SEC, CLEAR_SESSION, TEST_START, TEST_CONFIGURE,
-			TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END)
+			TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END, VERS)
 pubread_cmds = ( CHECK_SERVER, LIST, GET_TOKEN, GET_TOKEN_PERS )
 secure_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, REPORT, 
 			ADD_TOKEN_SEC, GET_TOKEN_SEC, LOAD_FILE_SEC, REMOVE_TOKEN_SEC, REMOVE_SECTION_SEC, 
@@ -101,5 +102,5 @@ pers_cmds = ( SET_TOKEN_PERS, ADD_TOKEN_PERS, LOAD_TOKENS_PERS, LOAD_FILE_PERS,
 			GET_TOKEN_PERS, REMOVE_TOKEN_PERS, REMOVE_SECTION_PERS)
 pers_opts = (PERS)
 local_cmds = (SHOW_LOG, TEST_START, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END)
-cmd_opts = ( DEST, SESSION, PERS, ALL )
+cmd_opts = ( DEST, SESSION, PERS, ALL, TREE )
 rep_opts = (ACCESS, STAT, DATAFILE)

@@ -12,13 +12,15 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-06 05:22:14"
+__lastedited__ = "2015-07-07 07:41:41"
 
 import sys, os, socket, subprocess, logging, argparse, time
+import regd.util as util
 from regd.util import ISException, unknownDataFormat, objectNotExists, cannotConnectToServer
 from regd.defs import *  # @UnusedWildImport
-import regd.util as util, regd.defs as defs
+import regd.defs as defs
 log = None
+
 
 THISFILE = os.path.basename( __file__ )
 
@@ -74,38 +76,22 @@ def Client( cmd, opt, sockfile=None, host=None, port=None ):
 	tmout = 3
 	if cmd[0].find( "_sec " ) != -1 or cmd[0].endswith( "_sec" ):
 		tmout = 30
-		
-	try:
-		sock = connectToServer(sockfile, host, port, tmout)
-	except ISException as e:
-		return str(e)
 
+	
 	try:
-		# Creating packet: <packlen> <cmd|opt> <datalen> [data]...
-		bpack = bytearray()
-		if cmd:
-			bpack.extend( (cmd[0] + ' ').encode('utf-8') )
-			if cmd[1]:
-				b = bytearray( cmd[1], encoding='utf-8')
-				bpack.extend( (str(len(b)) + ' ' ).encode('utf-8'))
-				bpack.extend( b )
-			else:
-				bpack.extend( b'0' )
-		
-		if opt:
-			for op in opt:
-				if op:
-					bpack.extend( (' ' + op[0] + ' ').encode('utf-8') )
-					if op[1]:
-						b = bytearray( opt[1], encoding='utf-8')
-						bpack.extend( (str(len(b)) + ' ' ).encode('utf-8') )
-						bpack.extend( b )
-					else:
-						bpack.extend( b'0' )
-		
-		util.sendPack(sock, bpack)
 		data = bytearray()
-		util.recvPack(sock, data)
+		bpack = bytearray()
+		util.createPacket(cmd, opt, bpack)
+		util.logcomm.debug("sending packet: {0}".format(bpack))
+		
+		try:
+			sock = connectToServer(sockfile, host, port, tmout)
+			util.sendPack(sock, bpack)
+			util.recvPack(sock, data)
+		except ISException as e:
+			return str(e)
+			
+		util.logcomm.debug("received packet: {0}".format(data))
 
 		sock.shutdown( socket.SHUT_RDWR )
 		sock.close()
@@ -159,7 +145,8 @@ def main(*kwargs):
 		description = 'regd : Registry server.'
 	)
 	
-	#parser.add_argument( 'token', nargs = '?', help = 'Get a token' )
+	parser.add_argument( 'cmd', choices=defs.all_cmds, help = 'Regd command' )
+	parser.add_argument( 'params', nargs="*", help = 'Command parameters' )
 	# Regd options
 	parser.add_argument( '--log-level', default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
 	parser.add_argument( '--log-topics', help = 'For debugging purposes.' )
@@ -171,6 +158,7 @@ def main(*kwargs):
 	parser.add_argument( '--no-verbose', action='store_true', help = 'Only output return code numbers.' )
 	parser.add_argument( '--auto-start', action='store_true', help = 'If regd server is not running, start it before executing the command.' )
 	# Commands
+	'''
 	group = parser.add_mutually_exclusive_group()
 	group.add_argument( '--version', action='store_true', help = 'Print regd version.' )
 	group.add_argument( clp(START_SERVER), action = "store_true", help = 'Start server' )
@@ -205,16 +193,19 @@ def main(*kwargs):
 	group.add_argument( clp(TEST_CONFIGURE), action='store_true', help = 'Configure test' )
 	group.add_argument( clp(TEST_MULTIUSER_BEGIN), action='store_true', help = 'Start regd server on this account for multiuser test.' )
 	group.add_argument( clp(TEST_MULTIUSER_END), action='store_true', help = 'End multiuser test' )
+	'''
 	# Command options
-	parser.add_argument( clp( DEST ), action = CmdParam, help = "The name of the section to which the command applies")
-	parser.add_argument( clp( TREE ), action = CmdParam, help = "The name of the section to which the command applies")
+	parser.add_argument( clp( DEST ), action = CmdParam, help = "The name of the section into which tokens must be added.")
+	parser.add_argument( clp( TREE ), action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format. ")
+	
+	args = parser.parse_args(*kwargs)
 	
 	if not cmdoptions:
 		cmdoptions = None
-
-	args = parser.parse_args(*kwargs)
+		
+	cmd = args.cmd
 	
-	if args.version:
+	if cmd == VERS:
 		print( defs.rversion )
 		return 0
 	
@@ -223,6 +214,8 @@ def main(*kwargs):
 	util.setLog( args.log_level, args.log_topics )
 	log = util.log
 
+	log.debug(vars(args))
+	
 	# Setting up server name
 	
 	try:
@@ -270,7 +263,7 @@ def main(*kwargs):
 
 		filelog = logging.FileHandler( logfile )
 		filelog.setLevel( logging.WARNING )
-		log.addHandler( filelog )
+		util.log.addHandler( filelog )
 	
 	# Test module
 	tstdir=os.path.dirname(os.path.realpath(__file__)) + "/testing"
@@ -308,7 +301,7 @@ def main(*kwargs):
 			subprocess.Popen(opts)
 			time.sleep(2)
 
-	if args.start:
+	if cmd == START_SERVER:
 		import regd.serv as serv
 		# Setting up start configuration
 		
@@ -386,35 +379,48 @@ def main(*kwargs):
 						(servername,host)[bool(host)], (_sockfile, port)[bool(host)]  ))
 		return serv.Server( servername, _sockfile, host, port, acc, datafile )
 
-	elif args.stop:
+	elif cmd == STOP_SERVER:
 		if Client( (STOP_SERVER, None ), None, _sockfile, host, port ) != "1":
 			if not args.no_verbose:
-				log.error( "cmd 'stop': Cannot contact server." )
+				util.log.error( "cmd 'stop': Cannot contact server." )
 			return -1
 
-	elif args.restart:
-		resAcc = Client( ( REPORT, ACCESS ), None, _sockfile, host, port )
-		resDf = Client( ( REPORT, DATAFILE ), None, _sockfile, host, port )
+	elif cmd == RESTART_SERVER:
+		resAcc = Client( ( REPORT, [ACCESS] ), None, _sockfile, host, port )
+		resDf = Client( ( REPORT, [DATAFILE] ), None, _sockfile, host, port )
 		if Client( ( STOP_SERVER, None ), None, _sockfile, host, port ) != "1":
 			log.error( "cmd 'restart': Cannot contact server." )
 			return -1
 		
 		if resAcc[0] != '1':
 			print( "Error: Could not get the permission level of the current server instance.",
-				"Server stopped and didn't restarted.")
+				"Server has been stopped and not restarted.")
 			return -1  
 		if resDf[0] != '1':
 			print( "Error: Could not get the data file name of the current server instance.",
-				"Server stopped and didn't restarted.")
+				"Server has been stopped and not restarted.")
 			return -1  
 
 		time.sleep( 1 )
 
 		return serv.Server( servername, _sockfile, host, port, int(resAcc[1]), resDf[1] )
-
+	
+	elif cmd not in defs.local_cmds:
+		res = Client( (cmd, args.params ), cmdoptions, _sockfile, host, port )
+		if res[0] != '1':
+			if args.cmd.startswith( "get" ):
+				print( "0", res )
+			elif res[0] == '0' :
+				log.error( "Cannot contact server." )
+			else:
+				log.error( res[1:] )
+			log.debug( res )
+			return -1
+		print( res )
+		
 	elif hasattr( args, 'itemcmd' ):
 		if args.item:
-			res = Client( (args.cmd, args.item), cmdoptions, _sockfile, host, port )
+			res = Client( (args.cmd, [args.item]), cmdoptions, _sockfile, host, port )
 		else:
 			'''Default item'''
 			res = Client( ( args.cmd, None ), cmdoptions, _sockfile, host, port )
@@ -465,4 +471,4 @@ def main(*kwargs):
 
 
 if __name__ == "__main__":
-	sys.exit( main(sys.argv[:] ) )
+	sys.exit( main(sys.argv[1:] ) )
