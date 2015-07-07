@@ -10,15 +10,17 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-06 00:29:45"
+__lastedited__="2015-07-07 07:39:34"
 
 import sys, os, pwd, logging, signal
 import configparser
 import regd.defs as defs
 
 # Loggers
-log = None
-logtok = None
+log = logging.getLogger( defs.APPNAME )
+logtok = logging.getLogger(defs.APPNAME + ".tok")
+logcomm = logging.getLogger(defs.APPNAME + ".comm")
+
 
 _sockfile = None
 
@@ -51,11 +53,12 @@ persistentNotEnabled = 7
 cannotConnectToServer= 8
 clientConnectionError= 9
 objectNotExists		 = 10
+unrecognizedParameter= 11
 
 errStrings = ["Program error", "Operation successfull", "Unknown data format", "Value doesn't exist", "Value already exists",
 			"Operation failed", "Permission denied", 
 			"Persistent tokens are not enabled on this server", "Cannot connect to server",
-			"Client connection error", "Object doesn't exist"]
+			"Client connection error", "Object doesn't exist", "Unrecognized parameter"]
 
 class SignalHandler:
 	def __init__(self):
@@ -81,27 +84,33 @@ sigHandler = SignalHandler()
 
 def setLog( loglevel, logtopics=None ):
 	global log, logtok
-	log = logging.getLogger( defs.APPNAME )
 	log_level = getattr( logging, loglevel )
 	log.setLevel( log_level )
 
-	# Console output ( for debugging )
-	strlog = logging.StreamHandler()
-	strlog.setLevel( loglevel )
-	bf = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
-	strlog.setFormatter( bf )
-	log.addHandler( strlog )
+	if not log.hasHandlers():
+		# Console output ( for debugging )
+		strlog = logging.StreamHandler()
+		strlog.setLevel( loglevel )
+		bf = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
+		strlog.setFormatter( bf )
+		log.addHandler( strlog )
 	
-	logtok = logging.getLogger(defs.APPNAME + ".tok")
 	if logtopics:
-		if logtopics == "tokens":
+		if "tokens" in logtopics and not logtok.hasHandlers():
 			logtok.setLevel(logging.DEBUG)
 			strlogtok = logging.StreamHandler()
 			strlogtok.setLevel( logging.DEBUG )
 			bftok = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
 			strlogtok.setFormatter( bftok )
 			logtok.addHandler( strlogtok )
-
+		if "comm" in logtopics and not logcomm.hasHandlers():
+			logcomm.setLevel(logging.DEBUG)
+			strlogcomm = logging.StreamHandler()
+			strlogcomm.setLevel( logging.DEBUG )
+			bfcomm = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
+			strlogcomm.setFormatter( bfcomm )
+			logcomm.addHandler( strlogcomm )
+			
 def get_home_dir():
 	if defs.homedir:
 		return defs.homedir
@@ -177,14 +186,11 @@ def get_filesock_addr( atuser, servername ):
 		
 	_sockfile = '{0}/.{1}.{2}'.format( sockdir, servername, defs.sockname )	
 	return ( sockdir, _sockfile )
-
-def getcp():
-	return {}
 	
 def printMap( m, indent ):
 	ret = ""
 	for k,v in m.items():
-		if type( v ) is dict:
+		if isinstance( v, dict):
 			ret += "{0:{width}}[{1}]\n".format("", k, width=(indent+1))
 			ret += printMap( m[k], indent + 4 )
 		else:
@@ -222,7 +228,11 @@ def recvPack(sock, pack):
 	datalen = -1
 
 	while packlen != datalen:
-		newdata = sock.recv( 4096 )
+		try:
+			newdata = sock.recv( 4096 )
+		except OSError as e:
+			raise ISException(clientConnectionError, moreInfo=e.strerror)
+			
 			
 		data.extend( newdata )
 		datalen = len( data )
@@ -243,5 +253,81 @@ def sendPack(sock, pack):
 	packlen = "{0:<10}".format( len(pack) )
 	cmdpack = bytearray( packlen, encoding = 'utf-8' )
 	cmdpack.extend( pack )
-	sock.sendall( cmdpack )		
+	sock.sendall( cmdpack )
+	
+def createPacket(cmd : 'in list', opt : 'in list', bpack : 'out bytearray'):
+	# Creating packet: <packlen> <cmd|opt> <numparams> [<paramlen> <param>]...
+	if cmd:
+		bpack.extend( (cmd[0] + ' ').encode('utf-8') )
+		if cmd[1]:
+			bpack.extend( (str(len(cmd[1])) + ' ' ).encode('utf-8'))
+			for par in cmd[1]:
+				b = bytearray( par, encoding='utf-8')
+				bpack.extend( (str(len(b)) + ' ' ).encode('utf-8'))
+				bpack.extend( b )
+		else:
+			bpack.extend( b'0' )
+	
+	if opt:
+		for op in opt:
+			if op:
+				bpack.extend( (' ' + op[0] + ' ').encode('utf-8') )
+				if op[1]:
+					bpack.extend( (str(len(opt[1])) + ' ' ).encode('utf-8'))
+					for par in opt[1]:
+						b = bytearray( opt[1], encoding='utf-8')
+						bpack.extend( (str(len(b)) + ' ' ).encode('utf-8') )
+						bpack.extend( b )
+				else:
+					bpack.extend( b'0' )
+	
+def parsePacket( data : 'in str', cmdOptions : 'out list', cmdData : 'out list') -> str:	
+	# Server commands and regd command line commands and options are two different sets:
+	# the latter is the CL user interface, and the former is the internal communication 
+	# protocol.
+	# Regd client receives commands from the command line, converts it to server command 
+	# syntax, and sends it in the form of command packet to the server.
+	# Each packet contains exactly one command and related to it options, if any.
+	# Format of command packets:
+	# <COMMAND> <NUMPARAMS> [<PARAMLENGTH> <PARAM>] ... [OPTION NUMPARAMS PARAMLENGTH PARAM]...
+
+	cmd = None
+	while data:
+		params=[]
+		word, _, data = data.partition(' ')
+		if not data:
+			raise ISException(unknownDataFormat)
+		numparams, _, data = data.partition(' ')
+		try:
+			numparams = int( numparams )
+			for i in range(0, numparams):
+				paramlen, _, data = data.partition(' ')
+				paramlen = int( paramlen )
+				if not (paramlen <= len( data )): raise
+				if not paramlen: raise 
+				param = data[:paramlen]
+				data = data[paramlen+1:]
+				params.append(param)					
+				
+			if word in defs.all_cmds:
+				# One command per packet
+				if cmd: raise 
+				cmd = word
+				if len( params ) == 0:
+					cmdData = None
+				elif len(params) == 1:
+					cmdData = params[0]
+				else:
+					cmdData = params
+			elif word in defs.cmd_opts:
+				cmdOptions.append(( word, params ))
+			else:
+				raise 
+		except:
+			raise ISException(unknownDataFormat)
+		
+	if not cmd:
+		raise ISException(unknownDataFormat)
+	
+	return cmd
 			

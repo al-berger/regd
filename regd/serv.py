@@ -10,16 +10,16 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-06 04:30:46"
+__lastedited__="2015-07-07 07:43:47"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
 import ipaddress
 import fcntl  # @UnresolvedImport
 import regd.util as util, regd.defs as defs
 from regd.util import log, ISException, permissionDenied, persistentNotEnabled, valueNotExists,\
-	operationFailed, getcp, sigHandler, clientConnectionError, unknownDataFormat
+	operationFailed, sigHandler, clientConnectionError, unknownDataFormat
 from regd.stor import read_locked, list_tokens, add_token, write_locked, get_token,\
-	read_sec_file, remove_section, remove_token
+	read_sec_file, remove_section, remove_token, getstor
 import __main__  # @UnresolvedImport
 from regd.defs import *  # @UnusedWildImport
 
@@ -38,9 +38,17 @@ class RegdServer:
 		self.stat["tokens"]={}
 		self.stat["commands"]={}
 		self.mcmd = self.stat["commands"]
-		self.tokens = util.getcp()
-		self.sectokens = util.getcp()
-		self.perstokens = util.getcp()
+		self.tokens = getstor()
+		self.sectokens = getstor()
+		self.perstokens = getstor()
+		self.fs = getstor()
+		self.secfs = getstor()
+		self.fs['']=getstor()
+		self.fs['']['ses']=self.tokens
+		self.fs['']['sav']=self.perstokens
+		self.secfs['']=getstor()
+		self.secfs['']['ses']=self.tokens
+		self.secfs['']['sav']=self.perstokens
 		self.timestarted = None
 		self.useruid = None
 			
@@ -94,9 +102,11 @@ class RegdServer:
 				log.debug("Data file fileno: %i" % (self.data_fd.fileno()))
 				fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
 			except OSError as e:
-				print("Error: data file \"{0}\" could not be opened: {1}".format(datafile, e.strerror), 
-				"Probably it's already opened by another process. Server is not started.")
-				return -1
+				print("Datafile has a lock on it (probably remaining after an abnormal exit",
+					 "of the previous program instance).")
+				#print("Error: data file \"{0}\" could not be opened: {1}".format(datafile, e.strerror), 
+				#"Probably it's already opened by another process. Server is not started.")
+				#raise ISException(operationFailed)
 		else:
 			print( "Server's data file is not specified. Persistent tokens are not enabled.")
 			
@@ -105,7 +115,7 @@ class RegdServer:
 				read_locked( self.data_fd, self.perstokens, True )
 			except ISException as e:
 				log.error( "Cannot read the data file: %s" % ( str(e)))
-				return -1
+				raise ISException(operationFailed)
 			
 		def signal_handler( signal, frame ):
 			if os.path.exists(sockfile):
@@ -174,6 +184,7 @@ class RegdServer:
 	def loop(self, sock):
 		while True:
 			connection, client_address = sock.accept()
+			cont=True
 			try:
 				cont = self.handle_connection(connection, client_address)
 			except ISException as e:
@@ -206,7 +217,7 @@ class RegdServer:
 		
 		log.debug("data: %s" % (data[:1000]))
 		data = data[10:].decode( 'utf-8' )
-		
+		'''
 		# Server commands and regd command line commands and options are two different sets:
 		# the latter is the CL user interface, and the former is the internal communication 
 		# protocol.
@@ -214,31 +225,39 @@ class RegdServer:
 		# syntax, and sends it in the form of command packet to the server.
 		# Each packet contains exactly one command and related to it options, if any.
 		# Format of command packets:
-		# <COMMAND> <DATALENGTH> [DATA] [OPTION DATALENGTH DATA]...
+		# <COMMAND> <NUMPARAMS> [<PARAMLENGTH> <PARAM>] ... [OPTION NUMPARAMS PARAMLENGTH PARAM]...
 		cmdOptions = []
 		cmd = None
-		cmdData = None 
+		cmdData = []
 		while data:
+			params=[]
 			word, _, data = data.partition(' ')
 			if not data:
 				raise ISException(unknownDataFormat)
-			datalen, _, data = data.partition(' ')
+			numparams, _, data = data.partition(' ')
 			try:
-				datalen = int( datalen )
-				if not (datalen <= len( data )): raise
-				if datalen: 
-					worddata = data[:datalen]
-					data = data[datalen+1:]
-				else:
-					worddata = None
+				numparams = int( numparams )
+				for i in range(0, numparams):
+					paramlen, _, data = data.partition(' ')
+					paramlen = int( paramlen )
+					if not (paramlen <= len( data )): raise
+					if not paramlen: raise 
+					param = data[:paramlen]
+					data = data[paramlen+1:]
+					params.append(param)					
 					
 				if word in defs.all_cmds:
 					# One command per packet
 					if cmd: raise 
 					cmd = word
-					cmdData = worddata
-				elif word in defs.cmd_options:
-					cmdOptions.append(( word, worddata ))
+					if len( params ) == 0:
+						cmdData = None
+					elif len(params) == 1:
+						cmdData = params[0]
+					else:
+						cmdData = params
+				elif word in defs.cmd_opts:
+					cmdOptions.append(( word, params ))
 				else:
 					raise 
 			except:
@@ -246,8 +265,13 @@ class RegdServer:
 			
 		if not cmd:
 			raise ISException(unknownDataFormat)
+			'''
+		cmdOptions=[]
+		cmdData=[]
+		cmd = util.parsePacket(data, cmdOptions, cmdData)
 			
-		log.info( "command received: {0}".format( cmd ) )
+		log.info( "command received: {0} {1}".format( cmd, cmdData ) )
+		
 
 		# Three response classes:
 		# 0 - program error
@@ -294,55 +318,49 @@ class RegdServer:
 		else:
 			self.mcmd[cmd] = 1 if cmd not in self.mcmd else self.mcmd[cmd]+1
 			
+			# -------------- Command handling -----------------
+			
 			if cmd == STOP_SERVER:
 				resp = "1"
 
-			if cmd == CHECK_SERVER:
+			elif cmd == CHECK_SERVER:
 				resp = "1Up and running since {0}\nUptime:{1}.".format(	
 						str(self.timestarted).rpartition(".")[0], 
 						str(datetime.datetime.now() - self.timestarted).rpartition(".")[0])
 			
-			if cmd == REPORT:
-				if len( cmdOptions ) != 1:
-					resp = "0Unrecognized command syntax"
+			elif cmd == REPORT:
+				if not len( cmdData ):
+					resp = "0Unrecognized command syntax: the command parameter is missing."
 				else:
-					if cmdOptions[0][0] == defs.ACCESS:
+					if cmdData == defs.ACCESS:
 						resp = "1{0}".format( self.acc )
-					elif cmdOptions[0][0] == defs.STAT:
+					elif cmdData == defs.STAT:
 						resp = "1" + self.prepareStat()
-					elif cmdOptions[0][0] == defs.DATAFILE:
+					elif cmdData == defs.DATAFILE:
 						resp = "1" + self.datafile
 					else:
 						resp = "0Unrecognized command syntax"
-			if cmd == LIST:
-				if not len( cmdData ): cmdData = "/"
+						
+			elif cmd == LIST:
+				if not cmdData: cmdData = None
+				treeView = False
+				for op in cmdOptions:
+					if op[0] == TREE:
+						treeView = True
 				s = ""
-				if cmdData.startswith("/ses") or cmdData == "/":
-					s = list_tokens(self.tokens, cmdData, tree)
+				try:
+					if not cmdData:
+						s = list_tokens(self.fs, cmdData, treeView)
+					elif cmdData.startswith("/ses"):
+						s = list_tokens(self.tokens, cmdData, treeView)
+					elif cmdData.startswith("/sav"):
+						s = list_tokens(self.perstokens, cmdData, treeView)
+					else:
+						raise ISException(valueNotExists, cmdData, "Section doesn't exist")
+					resp = "1"+s
+				except ISException as e:
+					resp = str(e)
 				
-			if cmd == LIST_TOKENS_PERS:
-				sects = cmdData.split( "," ) if len( cmdData ) else None
-				try:
-					resp = "1" + list_tokens( self.perstokens, sects )
-				except ISException as e:
-					resp = str( e )
-
-			if cmd == LIST_TOKENS_SESSION:
-				sects = cmdData.split( "," ) if len( cmdData ) else None
-				try:
-					resp = "1" + list_tokens( self.tokens, sects )
-				except ISException as e:
-					resp = str( e )
-
-			if cmd == LIST_TOKENS_ALL:
-				try:
-					s = list_tokens( self.tokens )
-					if self.data_fd:
-						s += list_tokens( self.perstokens )
-					resp = "1" + s
-				except ISException as e:
-					resp = str( e )
-
 			elif cmd == ADD_TOKEN:
 				'''Strict add: fails if the token already exists.'''
 				try:
@@ -511,12 +529,12 @@ class RegdServer:
 					resp = str( e )
 					
 			elif cmd == CLEAR_SEC:
-				self.sectokens = getcp()
+				self.sectokens = getstor()
 				resp = "1"
 
 			elif cmd == CLEAR_SESSION:
-				self.sectokens = getcp()
-				self.tokens = getcp()
+				self.sectokens = getstor()
+				self.tokens = getstor()
 				resp = "1"
 					
 		try:

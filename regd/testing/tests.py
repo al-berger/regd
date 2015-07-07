@@ -10,7 +10,7 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-__lastedited__ = "2015-06-25 17:14:39"
+__lastedited__ = "2015-07-06 18:42:26"
 
 import unittest, sys, os, pwd, logging, re
 from configparser import ConfigParser
@@ -27,7 +27,7 @@ log = None
 currentTest = None
 
 
-# As of Python 3.4.3, setting globals in setUpModule doesn't succeed
+# As of Python 3.4.3, setting globals in setUpModule() doesn't succeed
 class globInit():
 	def __init__(self):
 		global cp, log, test_basic, test_network, test_multiuser, tregs, ntregs, mtregs
