@@ -14,22 +14,23 @@ __regd__ is a server daemon program for storing or temporarily keeping
 information in the form of name/value pairs (tokens) and returning it 
 in response to commands.
 
-__regd__ can run either as a network server on a dedicated IP address
+__regd__ can run either as a network server on a dedicated HOST:PORT address
 or as a local server using a local file ("Unix file socket") as a server
 address.
 
 Once __regd__ server is started it remains running and responds to commands
 which are sent to it. Commands manage the server behaviour and are used 
 for adding information to the server storage, retrieving or deleting it, 
-restarting and stopping the server, getting reports, etc.
+restarting and stopping the server, getting reports or server variable values, 
+etc. When not executing a user command __regd__ server remains in idle state
+and consumes almost no resources. 
 
 Commands can be sent to the running __regd__ server in one of two ways: 
-via command line with another __regd__ instance invoked as a client, or
-via sockets, if the connection to __regd__ server is made from another
-or program.
+via command line using __regd__ as a client, or via sockets. Both these ways
+can be used for connecting to __regd__ both manually and programmatically.
 
-Any user on a system can have a separate regd server running, containing 
-her own information. If needed, one user can have several regd server 
+Any user on a system can have her own __regd__ server running, containing 
+her own information. If needed, one user can have several __regd__ server 
 instances running with different server names and different sets of information. 
 Each server instance has its own persistent and temporary storage and its
 own permission access level.
@@ -39,107 +40,118 @@ access levels for all its data: _private_, _public-read_ or _public_.
 
 ### File socket servers and Internet socket servers  
 
-__regd__ server can be started either on a file ("UNIX domain") socket or
-on Internet socket with an assigned IP address and port number. Any user on
+__regd__ server can be started either on a file ("UNIX domain socket") or
+on an Internet socket with an assigned IP address and port number. Any user on
 a system can have multiple __regd__ servers of both types simultaneously 
 running each with its own data storage. The main differences between file socket
 servers and Internet socket servers are the following:
 
-- File socket server runs using a common file as its address and can only be 
-accessed by users who have access to the filesystem where the file socket is
+- File socket server runs using a usual filesystem file as its address and can 
+only be accessed by users who have access to the filesystem where the file socket is
 located. Whereas Internet socket servers can be accessed from any computer, from
-which the network address ofthe __regd__ server can be reached.
+which the network address of the __regd__ server can be reached.
 
 - File socket servers have access permission system which allows to restrict access
 to data only to certain users accounts, and can be used for safely sharing private 
 data only between trusted users. Internet socket servers can only restrict data 
 access to certain IP addresses from which they accept commands.
 
+### Regd communication protocol
+
+__regd__ server is started, stopped and communicated with using the __regd__ communication protocol. According to this protocol, all client-server interactions
+are done in four steps:
+
+1. Client sends a _query_message_ to Server.
+1.1. Server receives the _query_message_.
+2. Server sends a _result_message_ to Client.
+2.2. Client receives the _result_message_.
+
+All _query_messages_ consists of one required part: _command_ , and one optional 
+part: _options_. The _command_ part must contain exactly one command name, which can
+be sufficient for parameterless commands (e.g. __check__), and also can include 
+either the required parameters (e.g. __get__ command) or optional parameters for commands with default parameter values (e.g. __load-file-sec__). The general __regd__ _query_message_ syntax is 
+the following:
+
+regd <_COMMAND_NAME_> [_COMMAND_PARAMETERS_] [_OPTION_NAME_ [_OPTION_PARAMETERS_]]...
+
+Regd command and option names are distinguished by a different naming style. Option
+names have '--' or '-' prefixes (for long or short name versions accordingly); e.g.: __--pers__. Command names don't have those prefixes: __add__, __show-log__.
+
+_Result_messages_ have the following general syntax:
+
+<_1|0_CODE_>[_QUERY_RESULT_]
+
+The 1|0 code is either '1' or '0' digit which is always the first symbol in the 
+_result_message_. The '1' means that the query was completed successfully, and '0' 
+means, that the query failed and the rest of the message is the failure report.
+
 ### Starting regd server  
   
-When __regd__ server is started (invoked with the __--start__ option), 
-it must be provided with four configuration options (all of them have 
-default values): server address, access level, server name and data file.
+When __regd__ server is started, it must be provided with four configuration options (all of them have default values): _server address_, _server name_, _access level_ and _data file_.
 
 _Server_address_  
 
-Server address is identifying information with which it can be contacted from 
-another process (or from command line). 
+The server address is the identifying information with which the server can be contacted from another process (or from command line). 
 
 If __regd__ is started on an IP address,  the address must be specified with
-__--host__ and __--port__ command line options (see below). 
+__--host__ and __--port__ options (see below). 
 
 If __regd__ is started on a file socket (which is default), its address is the 
-server name, specified on the command line (or the default name if the server
+name, specified in the __--server-name__ option (or the default name if the server
 name wasn't sepecified). If a file socket server is contacted from another
-user account, its address includes the user name of the server process owner
-(the name of the account from which the server was started).
+user account, the server name must be prepended with the user name of the server process owner (the name of the account from which the server was started) and '@' character. E.g.: username@servername.
 
 _Server_name_  
 
 If one user has more than one __regd__ server running on _file_sockets_, these 
-servers need to be distinguished via different server instance names. The server 
-name is assigned to a _regd_ server instance on startup with __--server-name__ 
-command line option. The server name can have length up to 32 characters. Names 
+servers need to be distinguished between each other via different server names. The server name is assigned to a _regd_ server instance on startup with __--server-name__ 
+option. The server name can have the length up to 32 characters. Names 
 must be unique within one user account. Different users can have identically 
 named _regd_ servers.
 
-If a user has only one __regd__ server instance running on a file socket, then this
+If a user has only one __regd__ server running on a file socket, then this
 server may or may not be provided with a name (if no name is provided on startup,
-the default name is used). 
+the default name is used and the server can be communicated without specifying its name). 
 
-__regd__ servers running on IP addresses don't have names and __--server-name__ 
-option is ignored on their startup.  
+__regd__ servers running on IP addresses don't have names (additional to the 'host:port' address) and __--server-name__ option is ignored on their startup.  
 
 _Access_level_  
 
-A __regd__ server running on a UNIX file socket has a permission level for accessing 
-and manipulating its data. A single permission level applies to all the data kept 
-in session and persistent tokens on the server. The __regd__ permission control 
-distinguish two groups of users: _private_ and _public_. The _private_ group includes
-the server user who started the server ("server process owner") and users listed in the
+A __regd__ server running on a UNIX file socket has the permission level for accessing 
+and manipulating its data. Currently a single permission level applies to all the data kept in session and persistent tokens on the server. The __regd__ permission control 
+distinguishes two groups of users: _private_ and _public_. The _private_ group includes
+the user who started the server ("server process owner") and users listed in the
 __trusted_users__ option in _regd.conf_ file ("trusted users"). The _public_ group 
 includes all other users. 
 
-Secure tokens remain private at all permission levels (public permission levels don't 
-apply to secure tokens). Server's permission level is set on server startup with 
-__--access__ option and can be one of three values:  
+The server's access permission level is set on server startup with __--access__ option and can be one of three values:  
 
 - __private__ : Only the server process owner and trusted users can send commands to the 
 server. All commands from other users are denied. This is the default level.  
 
 - __public-read__ : The data on the server except of secure tokens is "world-readable". 
 The server process owner and trusted users have full access to the server. From other 
-users the following commands are executed: __--check__, __--list-all__, __--list-pers__, 
-__--list-sessions__, __--get__, __--get-pers__. All other commands from other users 
-are denied.  
+users the following commands are executed: __get__, __ls__, __check__. All other commands from other users are denied.  
 
 - __public__ : The data on the server except of secure tokens is "world-readable" and 
 "world-writable". All users having access to the machine's filesystem can read, add,
 modify and remove session and persistent tokens (secure tokens remain private and
 can be accessed only by the server process owner and trusted users). 
 
-If __--access__ option is not present at server startup, then the server permission level 
-is set as 'private' by default.
+If __--access__ option is not specified at server startup, the server permission level is set as 'private' by default.
 
-The following commands can be executed only by the server process owner and trusted users 
-at all permission levels ("private commands"): __--start__, __--stop__, __--restart__, 
-__--add-sec__, __--get-sec__, __--load-file-sec__, __--remove-sec__, __--remove-section-sec__, 
-__--clear-sec__, __--report-stat__, __--show-log__.
+The following commands can be executed only by the server process owner and trusted users at all permission levels ("private commands"): __start__, __stop__, __restart__, 
+__add-sec__, __get-sec__, __load-file-sec__, __remove-sec__, __remove-section-sec__, 
+__clear-sec__, __report-stat__, __show-log__.
 
 _Data_file_  
 
-Each server instance by default has its own persistent storage: data file from which
-persistent tokens are read on startup and to which they are saved back when new tokens are
-added, or existing tokens are modified or removed. The data file name can be provided
-with __--datafile__ command line option on server startup. The default name of the data file 
-is used if __--datafile__ option is not present on startup and automatically composed out 
-of three parts:
+Each server instance by default has its own persistent storage: the file from which the 
+persistent tokens are read on startup and to which they are saved back when new tokens are added, or existing tokens are modified or removed. The data file name can be provided
+with __--datafile__ command line option on server startup. The default name of the data file is used if __--datafile__ option is not present on startup and automatically composed out of three parts:
 
-1. Directory: the _regd_ data directory defined in __'datadir'__ option in _regd.conf_,
- or default one if 'datadir' is not defined . 
-2. File: for file socket servers the server name is used as a data file name; for servers 
-on IP addresses the combination of host name and port number is used as.
+1. Directory: the __regd__ _data directory_ defined in __'datadir'__ option in _regd.conf_, or the default one ({$HOME/.config/regd/data}) if 'datadir' is not defined . 
+2. File: for file socket servers the server name is used as a data file name; for servers on IP addresses the combination of host name and port number is used.
 3. Extension: ".data" file extension
 
 The presistent storage can be disabled for a server by specifying "None" in the 
@@ -148,53 +160,52 @@ session tokens and commands relating to persistent tokens will be denied.
 
 ### Communicating with regd server  
 
-A running _regd_ server keeps listening for incoming commands on the address on
-which it has been started (file socket or IP address). To communicate with a server
-either the socket/IP address can be used directly from other programs or _regd_ itself 
-can be called in client mode to send a command to a _regd_ server.
+A running __regd__ server keeps listening for incoming commands on the address on
+which it has been started (file socket or IP address). The communication with a server
+can be done either using the socket/IP address directly from other programs or using __regd__ in client mode to send a command to a __regd__ server.
 
-To send a command to a _regd_ server, _regd_ in the client mode is invoked with
+To send a command to a __regd__ server, __regd__ in the client mode is invoked with
 following general syntax (items in square brackets are optional):
 
-__regd__ [<_--host_> <_--port_> | <_--server-name_>] [_--log-level_] _command_
+<command> [_--host_ _--port_ | _--server-name_] [_--log-level_]  
 
 A server running on an IP address must always be contacted with the __--host__
-and __--port__ present on the command line:
+and __--port__ specified on the command line:
 
-$ regd --host some.hostname --port NNNN --get "someItem"
+$ regd get "someData" --host some.hostname --port NNNN
 
 A server running on a UNIX file socket must be contacted through it's server name
-(if it was started with a __--server-name__ option) and with the username of the
+(if the server was started with a __--server-name__ option) and with the username of the
 server process owner if the server was started by a user other than the user 
 sending it a command. User name is prefixed to the server name with '@' symbol:  
 
 alice@servername
 
-If the server was started without server name, then only the user name with '@' must be
+If the server was started without a server name, then only the username with '@' must be
 used as the server address. For example, if a server was started by user 'alice' without
 the server name, as follows:
 
-$ regd --start --access public-read
+$ regd start --access public-read
 
 then user 'alice' can contact the server as follows:
 
-$ regd --add someItem=someValue
+$ regd add someItem=someValue
 
-User 'bob' can contact this server as follows:
+User 'bob' can contact that server as follows:
 
-$ regd --server-name alice@ --get someItem
+$ regd get someItem --server-name alice@
 
 If the server was started by user 'alice' with the name 'info':
 
-$ regd -- start --server-name info --access public-read
+$ regd start --server-name info --access public-read
 
 then user 'alice' can contact the server as follows:
 
-$ regd --server-name info --add someItem=someInfo
+$ regd add someItem=someInfo --server-name info
 
 and user 'bob' can contact the server as follows:
 
-$ regd --server-name alice@info --get someItem
+$ regd get someItem --server-name alice@info 
 
 ### Tokens
 
@@ -203,29 +214,60 @@ of information storage. A token consists of a token identifier (_name_)
 and data (_value_), which is associated with this name. Both name and 
 value are Unicode strings and can hold arbitrary Unicode values of 
 arbitrary length. (However, see the NOTES section below about
-special cases when a token contains '=', '\' or ':' characters.) 
-The token name is used as as the token identifier.
+special cases when a token contains '=', '\' or '/' characters.) 
+The token name is used as the token identifier.
 
-Tokens are grouped in sections. Token name can contain an 
-optional section name, which is the part of the name up to the
-first colon. E.g.: 
-"SECTION NAME : token name". 
-If the section name is not present in the token name, the token
-is stored in the section named 'general'. If the section name contains
-colons within itself, they must be prepended with backslashes.
+Tokens are grouped in sections. Sections have their own names and can 
+contain other sections. Overall the tokens and sections organization structure 
+resembles the hierarchical structure of files and directories with naming
+convention being similar to the Unix file and directory naming rules.
+
+Each token is stored at a unique address which consists of the "section path"
+and the token name:
+
+`section1/section2/tokenName1`
+
+To store a token in a certain section, the section name (and the names of all 
+containing sections - "section path") must be specified along with the token name 
+when the token is added to a server:
+
+`regd add "section1/section2/tokenName1 = tokenValue1"
+
+If the section path is not specified when a token is added, the token is stored
+in the default section and can be accessed without a section name.
+
+To access the token value, the fully qualified name token name (the section path
+and the token name) must always be used:
+
+`regd get "section1/section2/tokenName1"`
+
+(Note the absence of '/' character in the beginning of the section path.)
+The fully qualified name includes one more component: the token storage type.
 
 A token can be one of two types regarding its lifetime:
 _session_ token or _persistent_ token. Session tokens 
-exist in the registry from the moment of their addition
-until the program's exit or until their removal with a command.
+exist in the server storage from the moment of their addition
+until the program's exit or until their removal.
 Persistent tokens are automatically stored in a disk file, automatically 
 loaded to the registry on each program start and exist until
 they are explicitly removed with a removal command.
 
+When a token is added to a server, it is added by default as a session token. 
+To add a token as a persistent token, the __--pers__ option should additionally 
+be specified:
+
+`regd get "section1/section2/tokenName1" --pers`
+
+So one can have two tokens on one server with identical section paths and names,
+but with different storage types. When adding or accessing session tokens, only their
+section path and name must be specified. When adding or accessing persistent tokens,
+the __--pers__ flag must be added to the query options.
+
+
 ### Secure tokens
 
-Secure tokens are the tokens that have certain access restrictions and security
-enhancements in their processing:
+Secure tokens are tokens that have certain access restrictions and security
+enhancements in their handling:
 
 - in file socket servers they are never shared to public and remain private (
 accessible only by the server owner and trusted users) even in servers with
@@ -239,7 +281,7 @@ command. Also secure tokens are not included in the print output of listing comm
 source. with secure loading command: __--load-file-sec__ . This command by default 
 is meant to call 'gpg' encryption program, which reads an encrypted file with secure 
 tokens, prompting the user for the password if needed, and then pipes the file text 
-to the __regd__ through a shell pipe. A user can use any other command of loading 
+to __regd__ through a shell pipe. A user can use any other command of loading 
 secure tokens as long as it returns the list of "name=value" pairs through a shell
 pipe.
 
@@ -248,62 +290,51 @@ pipe.
 
 ### Help and version  
 
-### --help
+### help
 Display short command summary.
 
-### --version
-Display the program version.
+### version
+Display the program version. Without __--server-side__ option the client's version is
+displayed. With --server-side option - the server's regd version is displayed.
 
 ### Starting, stopping, checking a server  
 
-### --start
-Start __regd__. This command can be used with command line options: __--host__, __--port__, __--user__, __--log-level__ (see below). To start __regd__ on an Internet address, the command line options __--host__ and __--port__ must contain the host name and port number of that address. If "--host" and "--port" are not specified, __regd__ will run on a Unix file socket as a local daemon.
+### start
+Start __regd__. This command can be used with options: __--host__, __--port__, __--server-name__, __--access__, __--datafile__, __--log-level__ (see below). To start __regd__ on an Internet address, the command line options __--host__ and __--port__ must contain the host name and port number of that address. If "--host" and "--port" are not specified, __regd__ will run on a Unix file socket as a local daemon.
 
-### --stop
+### stop
 Stop __regd__. All session tokens are discarded.
 
-### --restart
+### restart
 Restart __regd__. All session tokens are discarded.
 
-### --check
-Check if the __regd__ is running.
+### check
+Output the uptime of the running __--regd__ server.
 
 ### Adding tokens to the server  
 
-### --add <_name=value_>
-Add a session token. If a token with such name already exists, the token value is not updated.
+### add <TOKEN1>[ TOKEN2]... [--pers][--force|-f]
+Add a token to server. Without __--pers__ option the token is added as a session token. With --pers option the token is added as a persistent token. If a token with such storage type, section path and name already exists, the option __--force__ causes the existing token's value to be replaced with the new value. If the token contains whitespace characters, it must be included in quotes. Multiple space separated tokens can be specified in the command parameter.
 
-### --set <_name=value_>
-Add a session token. If a token with such name already exists, the token value is updated.
+### load-file <_filename_>
+Add tokens to server from a text file. _filename_ - the path of the file with tokens. 
+The file must contain tokens as <name = value> pairs grouped under section paths in square brackets:
 
-### --add-pers <_name=value_>
-Same as __--add__, but the token is added to the persistent tokens.
+[section1/section2]
+name1 = value1
+name2 = value2
 
-### --set-pers <_name=value_>
-Same as __--set__, but the token is added to the persistent tokens.
+[section1/section3]
+name3 = value3
+name4 = value4
 
-### --load <_name1=value1_>[<token_separator>_name2=value2_...]  
-Add multiple session tokens. Each name/value pair must be separated from the previous one with the token separator. The default token separator is a three-character sequence: _@#$_ . With this default separator multiple tokens are specified like this:  
-"name1=value1@#$name2=value2"  
-The value of the token separator can be customized in _regd.conf_ file. 
+Section names, when not at the first line of the file, must be preceded by an empty line. Square brackets surrounding the section name must be the first and the last character on the line. Section names can include the same characters as tokens (any character except of null character, slash ('/') and cannot consists of a single dot).
 
-### --load-pers <_name1=value1_>[<token_separator>_name2=value2_...]
-Same as __--load__, but adds persistent tokens, rather
-than session ones.
+A single token can span several lines, in which case all lines beginning from the second one must start with either a single tab or with a single space character (all tabs and spaces beyond the first one are considered a part of the token). 
 
-### --load-file <_filename_>
-Add session tokens from a text file. _filename_ - the path of the file with tokens. 
-The token representation must follow the same rules as for tokens added from the command
-line (see NOTES section below). 
-A single token can span several lines, in which case all lines beginning from the second must start with either a single tab or with a single space character (all tabs and spaces beyond the first one are considered a part of the token). 
-If tokens must be added into several sections, the section names should be specified in the file in square brackets in the beginning of each section. If the file doesn't
-contain section names, the tokens are loaded into 'general' section.
+All tokens in the file are added to a single storage type: as session tokens by default, or as persistent tokens if the __--pers__ option is specified.
 
-### --load-file-pers <_filename_>
-Same as __--load-file__, but adds persistent tokens, rather
-than session ones.
-
-### --load-file-sec [_filename_]
+### load-file-sec [_filename_]
 Add secure tokens from an encrypted file. _filename_ - the 
 path of the file with secure tokens. _filename_ can be
 ommited, in which case the default encrypted file will be 
@@ -319,44 +350,36 @@ For this default command could be used, _gpg_, _gpg-agent_
 and _pinentry_ programs needs to be installed and run on the 
 computer. With this command, when the first command during a
 program session for getting a value of a secure token 
-('--get-sec') is received, a _pinentry_ dialog window is 
+('get-sec') is received, a _pinentry_ dialog window is 
 shown to the user, prompting for entering the password. 
-If the password is correct, _gpg_ program then reads the 
+If the entered password is correct, _gpg_ program then reads the 
 contents of the encrypted file and pipes the file text to 
 the __regd__, where it's kept in RAM. 
 With this procedure the decrypted file contents are never written 
-toa disk and always remain in RAM.
+to a disk and always remain in RAM.
 
 The command for reading encrypted files can be changed and
-specified in the _regd.conf_.
+specified in _regd.conf_.
 
 ### Getting tokens from the server  
 
-### --get <_name_>
-Get the value of a session token.
+### get <_TOKENPATH_>
+Get the value of a session token. Token path must consist of section path and token 
+name. For persistent tokens __--pers__ option must be specified in the query.
 
-### --get-pers <_name_>
-Get the value of a persistent token.
-
-### --get-sec <_name_>
+### get-sec <_name_>
 Get the value of a secure token.
 
 ### Removing tokens from the server  
 
-### --remove <_name_>
-Remove a session token 
+### remove <_name_>
+Remove a token 
 
-### --remove-pers <_name_>
-Remove a persistent token 
-
-### --remove-sec <_name_>
+### remove-sec <_name_>
 Remove a secure token.
 
-### --remove-section <_section_>
-Remove a section in session tokens.
-
-### --remove-section-pers <_section_>
-Remove a section in persistent tokens.
+### remove-section <_section_>
+Remove a section.
 
 ### --remove-section-sec <_section_>
 Remove a section in secure tokens.
@@ -369,7 +392,7 @@ Remove all secure tokens.
 
 ### Listing tokens  
 
-### --list-all
+### ls [_SECTION_] [_--pers_] [_--tree_] [_--novals_]
 Print all the session tokens and persistent tokens. (Secure tokens are not listed.)
 
 ### --list-session [_section1_[ _section2_...]]

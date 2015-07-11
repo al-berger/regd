@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-07 07:39:34"
+__lastedited__="2015-07-10 17:11:24"
 
 import sys, os, pwd, logging, signal
 import configparser
@@ -30,6 +30,10 @@ _sockfile = None
 class ISException( Exception ):
 	''' InfoStore exception. '''
 	def __init__( self, code, errCause = None, errMsg = None, moreInfo=None ):
+		#curframe = inspect.currentframe()
+		#calframe = inspect.getouterframes(curframe, 2)
+		#self.raiser = calframe[1][3]		
+		self.raiser = sys._getframe().f_back.f_code.co_name
 		self.code = code
 		self.cause = errCause
 		if errMsg == None and code < len( errStrings ):
@@ -40,7 +44,8 @@ class ISException( Exception ):
 			self.msg += ": " + moreInfo
 
 	def __str__( self, *args, **kwargs ):
-		return "{0} - {1} : {2}".format( self.code,	self.msg, self.cause )
+		return "Exception {0} in {1}:  {2}: {3}".format( self.code,	self.raiser, self.msg, 
+														self.cause )
 
 programError		 = 0
 success				 = 1
@@ -52,13 +57,16 @@ permissionDenied	 = 6
 persistentNotEnabled = 7
 cannotConnectToServer= 8
 clientConnectionError= 9
-objectNotExists		 = 10
-unrecognizedParameter= 11
+# Error codes don't start with '1'
+objectNotExists		 = 20
+unrecognizedParameter= 21
+unrecognizedSyntax	 = 22
 
 errStrings = ["Program error", "Operation successfull", "Unknown data format", "Value doesn't exist", "Value already exists",
 			"Operation failed", "Permission denied", 
 			"Persistent tokens are not enabled on this server", "Cannot connect to server",
-			"Client connection error", "Object doesn't exist", "Unrecognized parameter"]
+			"Client connection error", "Object doesn't exist", "Unrecognized parameter", 
+			"Unrecognized syntax"]
 
 class SignalHandler:
 	def __init__(self):
@@ -281,7 +289,7 @@ def createPacket(cmd : 'in list', opt : 'in list', bpack : 'out bytearray'):
 				else:
 					bpack.extend( b'0' )
 	
-def parsePacket( data : 'in str', cmdOptions : 'out list', cmdData : 'out list') -> str:	
+def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list') -> str:	
 	# Server commands and regd command line commands and options are two different sets:
 	# the latter is the CL user interface, and the former is the internal communication 
 	# protocol.
@@ -294,40 +302,100 @@ def parsePacket( data : 'in str', cmdOptions : 'out list', cmdData : 'out list')
 	cmd = None
 	while data:
 		params=[]
-		word, _, data = data.partition(' ')
+		word, _, data = data.partition(b' ')
 		if not data:
-			raise ISException(unknownDataFormat)
-		numparams, _, data = data.partition(' ')
+			raise ISException(unknownDataFormat, word + ' ' + data )
+		numparams, _, data = data.partition(b' ')
 		try:
-			numparams = int( numparams )
-			for i in range(0, numparams):
-				paramlen, _, data = data.partition(' ')
-				paramlen = int( paramlen )
+			numparams = int( numparams.decode('utf-8') )
+			for _ in range(0, numparams):
+				paramlen, _, data = data.partition(b' ')
+				paramlen = int( paramlen.decode('utf-8') )
 				if not (paramlen <= len( data )): raise
 				if not paramlen: raise 
 				param = data[:paramlen]
 				data = data[paramlen+1:]
-				params.append(param)					
-				
+				params.append(param.decode('utf-8'))				
+			
+			word = word.decode('utf-8')
 			if word in defs.all_cmds:
 				# One command per packet
 				if cmd: raise 
 				cmd = word
 				if len( params ) == 0:
 					cmdData = None
-				elif len(params) == 1:
-					cmdData = params[0]
 				else:
-					cmdData = params
+					cmdData.extend( params )
+					
 			elif word in defs.cmd_opts:
 				cmdOptions.append(( word, params ))
+				
 			else:
 				raise 
 		except:
-			raise ISException(unknownDataFormat)
+			raise ISException(unknownDataFormat, word)
 		
 	if not cmd:
-		raise ISException(unknownDataFormat)
+		raise ISException(unknownDataFormat, "Command is not recognized.")
 	
 	return cmd
-			
+
+def getLog( n ):
+	d = {}
+	read_conf( d )
+	if not "logfile" in d:
+		return "Logging to a file isn't configured in regd.conf."
+	logfile = d["logfile"]
+	with open( logfile, "r" ) as f:
+		ls = f.readlines()[-n:]
+	return "".join(ls)
+
+def clc( s ):
+	return( s.replace("_", "-"))
+
+def declc( s ):
+	return( s.replace("-", "_"))
+	
+def clp( s ):
+	return("--" + s.replace("_", "-"))
+	
+def getOptions(opts, *args):
+	# opts - list of pairs with the first item being the option name
+	# args - list of options to retrieve
+	ret=[]
+	for a in args:
+		found = False
+		for op in opts:
+			if op[0] == a:
+				ret.append(op[1])
+				found = True
+				break
+		if not found:
+			ret.append(None)
+	
+	return ret
+
+def getSwitches(opts, *args):
+	# opts - list of pairs with the first item being the option name
+	# args - list of options to retrieve
+	ret=[]
+	for a in args:
+		found = False
+		for op in opts:
+			if op[0] == a:
+				ret.append(True)
+				found = True
+				break
+		if not found:
+			ret.append(False)
+	
+	return ret
+
+def removeOptions(opts, *args):
+	if not opts:
+		return
+	for a in args:
+		for i in range(0, len(opts)):
+			if opts[i][0] == a:
+				opts = opts[:i] + opts[(i+1):]
+				i -= 1

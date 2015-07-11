@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-07 04:54:16"
+__lastedited__ = "2015-07-11 01:46:02"
 
 
 import sys, os, argparse, logging, time, re, pwd
@@ -20,6 +20,7 @@ import subprocess as sp
 from configparser import ConfigParser
 # import regd
 import regd.util as util, regd.defs as defs, regd.stor as stor
+import regd.tok as tok
 
 log = None
 tstconf = None
@@ -83,14 +84,47 @@ testtokens = [
 "фжÅ»«ЭФ¿¡Ц¨¶щцяЮб"
 ]
 
-testParts = [
+simpleParts = [
 "aaa",
-"bbb"
+"bbb",
+"ccc"	
+]
+
+testParts = [
+":\\ =",
+"[={(\\)}::]",
+"<{}()(<>][]",
+"\"Quoted\"",
+"\"'\"\"'' ' \"",
+"`~!@#$%^&*()-_=+\\|><,.:",
+"фжÅ»«ЭФ¿¡Ц¨¶щцяЮб"
 ]
 
 btestParts = [
-b'\x97\x97\x97',
-b'\x98\x98\x98',
+b'\x58\x92\x92\x32\x61',
+b'\x91\x61\x123\x40\x92\92\x41\x125\x58\x58\x93',
+b'\x60\x123\x125\x40\x41\x40\x60\x62\x125\x123\x125',
+b'\x34\x81\x117\x111\x116\x101\x100',
+b'\x34\x39\x34\x34\x39\x39\x32\x39\x32\x34',
+b'\x96\x126\x33\x64\x35\x36\x37\x94\x38\x42\x40\x41\x45\x95\x61\x43\x92\x124\x62\x60\x44\x46\x58',
+b'\x1092\x1078\x197\x187\x171\x1069\x1060\x191\x161\x1062\x168\x182\x1097\x1094\x1103\x1070\x1073'
+]
+
+datafile_tokens = [
+"sec1/sec2/nam1 = val1",
+"sec1/sec2/nam2 = val2",
+"[a-a]/\\*1/`~\";:/&-+\=j() = aaa",
+"[a-a]/\\*1/`~\";:/bbb = \=\\-#%=" 
+]
+
+datafile_lines = [
+"[sec1/sec2]",
+"nam1 = val1",
+"nam2 = val2",
+"",				
+"[[a-a]/\\*1/`~\";:/]",
+"&-+\=j() = aaa",
+"bbb = \=\\-#%=" 
 ]
 
 toksections = [
@@ -111,88 +145,13 @@ tokvalues = [
 "value3"
 ]
 
-
-class TokenFeeder:
-	modeToken = 1
-	modeKeyVal = 2
-	modeKey = 3
-	modeTokenB = 4
-	modeKeyValB = 5
-	modeKeyB = 6
+class TstTokenFeeder(tok.TokenFeeder):
+	def __init__(self, parts, bparts, num=None):
+		super(TstTokenFeeder, self).__init__(parts, bparts, num)
 	
-	class TFit:
-		def __init__(self, tf, binary=False):
-			self.cnt = 0
-			self.tf = tf
-			self.binary = binary
-	
-	class TokenIt(TFit):
-		def __init__(self, tf, binary=False):
-			super(TokenFeeder.TokenIt, self).__init__(tf, binary)
-		
-		def __next__(self):
-			if self.binary:
-				tk = self.tf.getTokenB( self.cnt )
-				tok = tk[0][0] + bytes(b' /') + tk[0][1] + bytes(b' =') + tk[0][2]
-				tok = (tok, tk[1])
-			else:
-				tk = self.tf.getToken( self.cnt )
-				tok = ( tk[0][0]+" /"+tk[0][1]+" ="+tk[0][2], tk[1] )
-				
-			self.cnt += 1
-			return tok
-		
-	class KeyValIt(TFit):
-		def __init__(self, tf, binary=False):
-			super(TokenFeeder.KeyValIt, self).__init__(tf, binary)
-		
-		def __next__(self):
-			if self.binary:
-				tok = self.tf.getTokenB( self.cnt )
-				key = tok[0][0] + bytes(b' /') + tok[0][1]
-				val = tok[0][2]
-			else:
-				tok = self.tf.getToken( self.cnt )
-				key = tok[0][0] + ' /' + tok[0][1]
-				val = tok[0][2]
-				
-			self.cnt += 1
-			return ( key, val, tok[1] )
-		
-	class KeyIt(TFit):
-		def __init__(self, tf, binary=False):
-			super(TokenFeeder.KeyIt, self).__init__(tf, binary)
-		
-		def __next__(self):
-			if self.binary:
-				tok = self.tf.getTokenB( self.cnt )
-				key = tok[0][0] + bytes(b' /') + tok[0][1]
-			else:
-				tok = self.tf.getToken( self.cnt )
-				key = tok[0][0] + ' /' + tok[0][1]
-				
-			self.cnt += 1
-			return ( key, tok[1] )
-	
-	def __init__( self, parts, bparts, num = None ):
-		self.parts = parts
-		self.bparts = bparts
-		self.n = len( parts )
-		self.mode = TokenFeeder.modeToken
-		self.num = 0
-		self.num = num if num != None and num < self.__len__() and num > 0 else self.__len__()
-
-	def __iter__( self ):
-		if self.mode == TokenFeeder.modeToken:
-			return TokenFeeder.TokenIt( self )
-		elif self.mode == TokenFeeder.modeKeyVal:
-			return TokenFeeder.KeyValIt( self )
-		elif self.mode == TokenFeeder.modeKey:
-			return TokenFeeder.KeyIt( self )
-
 	def __len__( self ):
-		return self.num if self.num else self.n ** 3
-
+		return self.num if self.num else self.n ** 3	
+			
 	def getToken( self, cnt ):
 		if cnt >= self.__len__():
 			raise StopIteration()
@@ -203,6 +162,8 @@ class TokenFeeder:
 		s1 = self.parts[si1]
 		s2 = self.parts[si2]
 		n = self.parts[ni]
+		if self.mode == tok.TokenFeeder.modeToken:
+			n = n.replace( '=', '\\=')
 		v = self.parts[vi]
 		cur = "{0}-{1}-{2}-{3} ({4})".format( si1, si2, ni, vi, cnt )
 		return ( ( s1 + " /" + s2, n, v ), cur )
@@ -217,6 +178,8 @@ class TokenFeeder:
 		s1 = bytearray( self.bparts[si1] )
 		s2 = bytearray( self.bparts[si2] )
 		n = bytearray ( self.bparts[ni] )
+		if self.mode == tok.TokenFeeder.modeTokenB:
+			n = n.replace( b'=', b'\\=')
 		v = bytearray( self.bparts[vi] )
 		s = s1
 		s.append(b'\x32')
@@ -225,15 +188,10 @@ class TokenFeeder:
 		
 		cur = "{0}-{1}-{2}-{3} ({4})".format( si1, si2, ni, vi, cnt )
 		return ( ( s, n, v ), cur )
-
-	def setMode( self, mode ):
-		if mode < 1 or mode > 6:
-			raise util.ISException(util.unrecognizedParameter)
-		self.mode = mode
-
+	
 	def getTokenParts( self, si1, si2, ni, vi ):
 		return ( self.parts[si1], self.parts[si2], self.parts[ni], self.parts[vi] )
-
+		
 class TokenFeeder1:
 	def __init__( self, sec, nam = None, val = None, num = None ):
 		self.sec = sec
@@ -253,7 +211,7 @@ class TokenFeeder1:
 			raise StopIteration()
 		si = self.cnt // len( self.sec )
 		ni = self.cnt % len( self.nam )
-		vi = self.cnt % len( self.m )
+		#vi = self.cnt % len( self.m )
 		s = self.sec[si]
 		n = self.nam[ni]
 		v = self.val[si]
@@ -267,9 +225,9 @@ class TokenFeeder1:
 	def getToken( self, si, ni, vi ):
 		return ( self.sec[si], self.nam[ni], self.val[vi] )
 
-class TokenStringFeeder( TokenFeeder1 ):
+class TokenStringFeeder1( TokenFeeder1 ):
 	def __init__( self, sec, nam = None, val = None, num = None ):
-		super( TokenStringFeeder, self ).__init__( sec, nam, val, num )
+		super( TokenStringFeeder1, self ).__init__( sec, nam, val, num )
 
 	def __next__( self ):
 		if self.cnt >= self.__len__():
@@ -350,7 +308,7 @@ class TestReg:
 		global log
 		log.info( "Creating registry %s" % self.servName )
 		try:
-			args = [rc, "start"]
+			args = [rc, defs.START_SERVER]
 			if self.servName:
 				args.append( sn )
 				args.append( self.servName )
@@ -376,11 +334,23 @@ class TestReg:
 			sp.Popen( args )
 			time.sleep( 2 )
 		except sp.CalledProcessError as e:
-			print( rc, "--start", "returned non-zero:", e.output )
+			print( rc, "start", "returned non-zero:", e.output )
 			raise util.ISException( util.operationFailed )
 
-	def sendCmd( self, *args_ ):
+	def sendCmd( self, *args_, **kwargs ):
+		'''Returns:
+		1 if '1' is returned
+		0 otherwise
+		-1 if CalledProcessError exception was thrown 
+		'''
 		args = [rc] + list( args_ )
+		if kwargs and "cmdOptions" in kwargs and kwargs["cmdOptions"]:
+			for opt in kwargs["cmdOptions"]:
+				if opt[1]:
+					args.append( "{0} {1}".format(util.clp(opt[0]), opt[1] ) )
+				else:
+					args.append( "{0}".format(util.clp(opt[0]) ) )
+					
 		if self.servName:
 			args.append( sn )
 			args.append( self.servName )
@@ -397,23 +367,32 @@ class TestReg:
 			args.append( "--log-topics" )
 			args.append( self.logtopics )
 
-		return sp.check_output( args )
+		res = 0
+		try:
+			log.debug("Sending command: %s" % args)
+			ret = sp.check_output( args )
+			log.debug("Returned: %s" % ret)
+			if ret and ret[0] == ord('1'):
+				res = 1
+			if len( ret ) > 1:
+				ret = ret[1:]
+		except sp.CalledProcessError as e:
+			res = -1
+			ret = "{0} {1} returned non-zero: {2}".format( args[0], args[1], e.output[:-1] )
+		
+		return res, ret 
 
-	def do_token_cmd( self, cmd, tokens, fb=None ):
+	def do_token_cmd( self, cmd, tokens, cmdOpts=None, fb=None ):
 		global log
 		log.info( "Performing %s on name: %s ; host: %s:%s" % ( cmd, self.servName, self.host,
 															self.port ) )
 
 		for tok, cur in tokens:
-			try:
-				res = self.sendCmd( cmd, tok )
-				res = res[:-1].decode( 'utf-8' )
-				if res[0] != '1':
-					print( cmd, "\nfailed:", res, "\n", cur )
-					return False
-			except sp.CalledProcessError as e:
-				print( rc, cmd, "\nreturned non-zero:", e.output, "\n", cur )
-				raise util.ISException( util.operationFailed )
+			res, ret = self.sendCmd( cmd, tok, cmdOptions=cmdOpts )
+			if res != 1:
+				print( cmd, "failed: ", ret, "\n", cur )
+				return False
+				#raise util.ISException( util.operationFailed )
 			
 			if fb: fb()
 
@@ -422,30 +401,25 @@ class TestReg:
 		return True
 
 
-	def compare( self, getCmd, checks, binary=False, fb=None ):
+	def compare( self, getCmd, checks, cmdOpts=None, binary=False, fb=None ):
 		global log
 		log.info( "Comparing registry %s" % self.servName )
 		'''Compares the contents of the registry with the 'tokens' list.'''
 
 		for key, val, cur in checks:
-			try:
-				res = self.sendCmd( getCmd, key )
-				if not binary:
-					res = res[:-1].decode( 'utf-8' )
+			res, ret = self.sendCmd( getCmd, key, cmdOptions=cmdOpts )
+			if res != 1:
+				print( getCmd, "failed: ", ret, "\n", cur )
+				return False
+				
+			if not binary:
+				ret = ret[:-1].decode( 'utf-8' )
 
-				if res[0] != '1':
-					print( getCmd, "failed:", res, "\n", cur )
-					return False
-
-				if res[1:] != val:
-					print( "Value and check don't match:\n  {0}\n  {1}\n{2}".format( res[1:],
+			if ret != val:
+				print( "Value and check don't match:\n  {0}\n  {1}\n{2}".format( ret[1:],
 															val, cur ) )
-					return False
+				return False
 
-			except sp.CalledProcessError as e:
-				print( rc, getCmd, "returned non-zero:", e.output )
-				raise util.ISException( util.operationFailed )
-			
 			if fb: fb()
 
 
@@ -453,48 +427,37 @@ class TestReg:
 													self.servName if self.servName else "regd" ) )
 		return True
 
-	def checkToken( self, s, n, v ):
+	def checkToken( self, s, n, v, binary=True ):
 		if s[-1] == '\\': s += ' '
 		if n[-1] == '\\': n += ' '
 		tok = "{0}:{1}={2}".format( s.replace( ":", "\:" ), n.replace( "=", "\=" ), v )
 		cmd = clp( defs.ADD_TOKEN )
-		try:
-			res = self.sendCmd( cmd, tok )
-		except sp.CalledProcessError as e:
-			print( rc, cmd, "returned non-zero:", e.output )
+		
+		res, ret = self.sendCmd( cmd, tok )
+		if res != 1:
+			print( cmd, "failed: ", ret )
 			return False
-
-		if res != b'1\n':
-			print( cmd, "failed:", res )
-			return False
-
+		
 		cmd = clp( defs.GET_TOKEN )
 		key = "{0}:{1}".format( s.replace( ":", "\:" ), n )
-		try:
-			res = self.sendCmd( cmd, key )
-			res = res[:-1].decode( 'utf-8' )
-		except sp.CalledProcessError as e:
-			print( rc, cmd, "returned non-zero:", e.output )
+		
+		res, ret = self.sendCmd( cmd, key )
+		if res != 1:
+			print( cmd, "failed: ", ret )
 			return False
+			
+		if not binary:
+			ret = ret[:-1].decode( 'utf-8' )
 
-		if res[0] != '1':
-			print( cmd, "failed:", res )
-			return False
-
-		if res[1:] != v:
+		if ret != v:
 			print( "Value and check don't match:\n  {0}\n  {1}".format( res[1:], v ) )
 			return False
 
 		cmd = clp( defs.REMOVE_TOKEN )
-		try:
-			res = self.sendCmd( cmd, key )
-			res = res[:-1].decode( 'utf-8' )
-		except sp.CalledProcessError as e:
-			print( rc, cmd, "returned non-zero:", e.output )
-			return False
-
-		if res[0] != '1':
-			print( cmd, "failed:", res )
+		
+		res, ret = self.sendCmd( cmd, key )
+		if res != 1:
+			print( cmd, "failed: ", ret )
 			return False
 
 		return True
@@ -503,10 +466,8 @@ def start_servers( parmaps ):
 	tregs = []
 	for m in parmaps:
 		treg = TestReg( rc, **m )
-		try:
-			treg.sendCmd( "--stop", "--no-verbose" )
-		except:
-			pass
+		treg.sendCmd( defs.STOP_SERVER, "--no-verbose" )
+		
 		time.sleep( 2 )
 		log.info( "Creating a %s with %s access..." %
 				( 
@@ -520,10 +481,8 @@ def start_servers( parmaps ):
 			tregs.append( treg )
 		except:
 			for treg in tregs:
-				try:
-					treg.sendCmd( "--stop", "--no-verbose" )
-				except:
-					pass
+				treg.sendCmd( defs.STOP_SERVER, "--no-verbose" )
+				
 			raise
 	time.sleep( 2 )
 	return tregs
@@ -532,19 +491,19 @@ sids = None
 nsids = None
 startKeywords = ["servName", "host", "port", "datafile", "acc", "loglevel", "logtopics"]
 
-def datafile_setup( sids ):
+def datafile_setup( sids, useDataFile=False ):
 	tmpdir = os.getenv( "TMPDIR", "/tmp" )
 	tstdatafile = tmpdir + "/regd_tst_{0}.data"
 	dataf = []
-	tf = TokenStringFeeder(toksections, toknames, tokvalues, len(toksections) ** 2)
 
 	try:
 		for i in sids:
 			df = tstdatafile.format( i )
-			fp = open( df, "w" )
-			for tok in tf:
-				fp.write(tok[0]+"\n")
-			fp.close()
+			if not os.path.exists(df) or not useDataFile:
+				fp = open( df, "w" )
+				for l in datafile_lines:
+					fp.write(l+"\n")
+				fp.close()
 			dataf.append( df )
 	except OSError as e:
 		print( "ATTENTION: Could not create a temporary test data file at:", tmpdir, str( e ) )
@@ -552,15 +511,23 @@ def datafile_setup( sids ):
 		dataf = ["None"] * len(sids)
 		
 	return dataf
+
 		
-def filesocket_setup( loglevel, logtopics ):
+def filesocket_setup( snames, accs, loglevel, logtopics, useDataFile=False ):
+	'''Multilple servers setup'''
 	global sids
-	sids = [None, "public-read", "public"]
-	dataf = datafile_setup(sids)
+	dfl = [None, "public-read", "public"]
+	if snames:
+		sids = snames
+	else:
+		sids = dfl
+	dataf = datafile_setup(sids, useDataFile)
+	if not accs:
+		accs = dfl
 
 	params = []
 	for i in range( 0, len( sids ) ):
-		params.append( [sids[i], None, None, dataf[i], sids[i], loglevel, logtopics] )
+		params.append( [sids[i], None, None, dataf[i], accs[i], loglevel, logtopics] )
 
 	parmaps = []
 	for i in range( 0, len( params ) ):
@@ -568,13 +535,17 @@ def filesocket_setup( loglevel, logtopics ):
 
 	return start_servers( parmaps )
 
-def filesocket_finish():
-	for i in sids:
+def filesocket_finish(snames=None):
+	if snames:
+		ls = snames
+	else:
+		ls = sids
+	for i in ls:
 		try:
 			if i:
-				sp.call( [rc, sn, i, "--stop", "--no-verbose"] )
+				sp.call( [rc, sn, i, defs.STOP_SERVER, "--no-verbose"] )
 			else:
-				sp.call( [rc, "--stop", "--no-verbose"] )
+				sp.call( [rc, defs.STOP_SERVER, "--no-verbose"] )
 		except:
 			pass
 
@@ -592,10 +563,15 @@ def network_setup(nsids_, loglevel, logtopics):
 
 	return start_servers( parmaps )
 
-def network_finish():
-	for host,port in nsids:
+def network_finish(snames=None):
+	if snames:
+		ls = snames
+	else:
+		ls = sids
+		
+	for host,port in ls:
 		try:
-			sp.call( [rc, "--host", host, "--port", port, "--stop", "--no-verbose"] )
+			sp.call( [rc, "--host", host, "--port", port, defs.STOP_SERVER, "--no-verbose"] )
 		except:
 			pass
 		
@@ -636,26 +612,26 @@ def begin_multiuser_test():
 		loglevel = "1"
 
 	try:
-		tregs = filesocket_setup( loglevel, None )
-		tf = TokenStringFeeder( toksections, toknames, tokvalues )
+		tregs = filesocket_setup( None, None, loglevel, None )
+		tf = TokenStringFeeder1( toksections, toknames, tokvalues )
 		cf = ChecksFeeder( toksections, toknames, tokvalues )
 		for treg in tregs:
 			log.info( "Adding tokens to the server..." )
-			treg.do_token_cmd( "--add", tf )
+			treg.do_token_cmd( "add", tf )
 			if treg.datafile != "None":
-				treg.do_token_cmd( "--add-pers", tf )
+				treg.do_token_cmd( "add-pers", tf, cmdOptions=[(defs.PERS, None)] )
 			log.info( "Checking tokens on the server..." )
-			treg.compare( "--get", cf )
+			treg.compare( defs.GET_TOKEN, cf )
 			if treg.datafile != "None":
-				treg.compare( "--get-pers", cf )
+				treg.compare( defs.GET_TOKEN, cf, cmdOpts=[(defs.PERS, None)] )
 	except:
 		print( "Some errors occured. The multi user test has NOT been set up." )
 		return
 
 	print( "Finished multiuser test setup." )
-	print( "'regd --test-start' can now be run on other user accounts, configured for",
+	print( "'regd test-start' can now be run on other user accounts, configured for",
 		"multiuser test with this account.\nAfter the tests are done, the",
-		"'regd --test-multiuser-end' should be called on this account" )
+		"'regd test-multiuser-end' should be called on this account" )
 
 def end_multiuser_test():
 	filesocket_finish()
@@ -664,23 +640,23 @@ def end_multiuser_test():
 def do_basic_test():
 	print( "BASIC test started." )
 	try:
-		tregs = filesocket_setup( "INFO", None )
+		tregs = filesocket_setup( None, None, "INFO", None )
 	except:
 		print( "Error: some errors occured during the test setup. The test has not been completed." )
 		return
 
-	tf = TokenStringFeeder( testtokens )
+	tf = TokenStringFeeder1( testtokens )
 	cf = ChecksFeeder( testtokens )
 	tk = KeysFeeder( testtokens )
 
 	for treg in tregs:
-		treg.do_token_cmd( "--add", tf )
-		treg.compare( "--get", cf )
+		treg.do_token_cmd( defs.ADD_TOKEN, tf )
+		treg.compare( defs.GET_TOKEN, cf )
 		tf.reset()
 		cf.reset()
 
 	for treg in tregs:
-		treg.do_token_cmd( "--remove", tk )
+		treg.do_token_cmd( defs.REMOVE_TOKEN, tk )
 		tk.reset()
 
 	filesocket_finish()
@@ -692,7 +668,7 @@ def basic_test_debug():
 	util.setLog( "WARNING", "tokens" )
 	# regd.setLog( "WARNING" )
 
-	if 1:
+	if 0:
 		tok = "\\\:\:= \\\: \\==:\\:=\\::= \\: \\=="
 		sec, nam, val = stor.parse_token( tok )
 		print( sec, nam, val )
@@ -701,16 +677,13 @@ def basic_test_debug():
 
 	treg = TestReg( rc, servName = "tst", loglevel = "INFO", logtopics = "tokens" )
 	# treg = TestReg( rc, servName="tst", loglevel="INFO" )
-	try:
-		treg.sendCmd( "--stop" )
-	except:
-		pass
+	treg.sendCmd( defs.STOP_SERVER )
 	time.sleep( 2 )
 	treg.create()
 	time.sleep( 3 )
 
 	if 0:
-		tf = TokenFeeder( tokvalues )
+		tf = TokenFeeder1( tokvalues )
 		treg.checkToken( *( tf.getToken( 0, 2, 0 ) ) )
 		# treg.checkToken( "\\", "=", "\\")
 		return
@@ -737,12 +710,12 @@ def basic_test_debug():
 	# arr = ["aaa", "bbb"]
 	# compose_tokens(arr, arr, arr, tokens)
 	# compose_checks(arr, keychecks, valchecks)
-	tf = TokenStringFeeder( tokvalues, num = 5 )
+	tf = TokenFeeder1( tokvalues, num = 5 )
 	cf = ChecksFeeder( tokvalues, num = 5 )
 	tk = KeysFeeder( tokvalues, num = 5 )
-	treg.do_token_cmd( "--add", tf )
-	treg.compare( "--get", cf )
-	treg.do_token_cmd( "--remove", tk )
+	treg.do_token_cmd( defs.ADD_TOKEN, tf )
+	treg.compare( defs.GET_TOKEN, cf )
+	treg.do_token_cmd( defs.REMOVE_TOKEN, tk )
 
 def test_configure():
 	if not tstconf:
@@ -845,14 +818,14 @@ def test_configure():
 		return True
 
 	if s == '1':
-		prompt = "The test has been configured. You can now run 'regd --test-start' to start it."
+		prompt = "The test has been configured. You can now run 'regd test-start' to start it."
 	elif s == '2':
 		ret = conf2()
 		if ret == '.':
 			return
 		cp.set( "general", "host", ret[0] )
 		cp.set( "general", "port", ret[1] )
-		prompt = "The test has been configured. You can now run 'regd --test-start' to start it."
+		prompt = "The test has been configured. You can now run 'regd test-start' to start it."
 	elif s == '3':
 		ret = conf2()
 		if ret == '.':
@@ -864,10 +837,10 @@ def test_configure():
 			return
 		cp.set( "general", "multiuser", ret )
 
-		prompt = ( "The test has been configured.  Now the 'regd --test-multiuser-begin' command",
-			"must be called from the '{0}' user account. After that, the 'regd --test-start'",
+		prompt = ( "The test has been configured.  Now the 'regd test-multiuser-begin' command",
+			"must be called from the '{0}' user account. After that, the 'regd test-start'",
 			"command must be called from this account. After the tests are done,"
-			"'regd --test-multiuser-end' should be called on '{0}' user account." ).format( ret )
+			"'regd test-multiuser-end' should be called on '{0}' user account." ).format( ret )
 
 	ret = getloglevel()
 	if ret == 'q':
@@ -931,8 +904,8 @@ def main( *kwargs ):
 		test_configure()
 
 	else:
-		# basic_test_debug()
-		do_basic_test()
+		basic_test_debug()
+		#do_basic_test()
 
 
 
