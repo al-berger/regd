@@ -12,17 +12,43 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-07 07:41:41"
+__lastedited__ = "2015-07-11 07:02:29"
 
 import sys, os, socket, subprocess, logging, argparse, time
 import regd.util as util
-from regd.util import ISException, unknownDataFormat, objectNotExists, cannotConnectToServer
+from regd.util import ISException, unknownDataFormat, objectNotExists, cannotConnectToServer, clc,\
+	declc, clp
 from regd.defs import *  # @UnusedWildImport
 import regd.defs as defs
+import regd.serv as serv
 log = None
 
 
 THISFILE = os.path.basename( __file__ )
+
+USAGE ='''
+Usage: 
+
+regd <COMMAND> [PARAMETER] [OPTIONS]...
+
+Commands:
+
+start                      Start server
+stop                       Stop server
+restart                    Restart server
+check                      Check server
+add	<TOKEN1> [TOKEN2]...   Add token
+get <TOKEN>		           Get token value
+remove <TOKEN>             Remove token
+remove-section <SECTION>   Remove section
+clear-session              Remove all session tokens
+load-file <FILENAME>       Read tokens from a file
+ls [SECTION] [--tree]      List tokens
+show-log [N]               Show N last lines of the log file
+
+For more information please read the regd manual.
+'''
+
 
 def signal_handler( signal, frame ):
 	if util._sockfile:
@@ -138,14 +164,11 @@ def main(*kwargs):
 				raise ValueError("Command switch cannot have values")
 			cmdoptions.append( ( self.dest[:], None ) )
 
-	def clp( s ):
-		return("--" + s.replace("_", "-"))
-	
 	parser = argparse.ArgumentParser( 
 		description = 'regd : Registry server.'
 	)
 	
-	parser.add_argument( 'cmd', choices=defs.all_cmds, help = 'Regd command' )
+	parser.add_argument( 'cmd', choices=[clc(x) for x in defs.all_cmds], help = 'Regd command' )
 	parser.add_argument( 'params', nargs="*", help = 'Command parameters' )
 	# Regd options
 	parser.add_argument( '--log-level', default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
@@ -196,17 +219,17 @@ def main(*kwargs):
 	'''
 	# Command options
 	parser.add_argument( clp( DEST ), action = CmdParam, help = "The name of the section into which tokens must be added.")
-	parser.add_argument( clp( TREE ), action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format. ")
+	parser.add_argument( clp( TREE ), action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format.")
+	parser.add_argument( clp( PERS ), action = CmdSwitch, nargs=0, help = "Apply the command to persistent tokens.")
+	parser.add_argument( clp( FORCE ), "-f", action = CmdSwitch, nargs=0, help = "Overwrite existing token values when adding tokens.")
+	parser.add_argument( clp( SERVER_SIDE ), action="store_true", help = "Execute command on the server side (only for 'client-or-server' commands).")
 	
 	args = parser.parse_args(*kwargs)
 	
-	if not cmdoptions:
-		cmdoptions = None
-		
-	cmd = args.cmd
+	cmd = declc(args.cmd)
 	
-	if cmd == VERS:
-		print( defs.rversion )
+	if cmd == HELP:
+		print( USAGE )
 		return 0
 	
 	# Setting up logging
@@ -302,7 +325,6 @@ def main(*kwargs):
 			time.sleep(2)
 
 	if cmd == START_SERVER:
-		import regd.serv as serv
 		# Setting up start configuration
 		
 		if atuser and userid:
@@ -401,11 +423,29 @@ def main(*kwargs):
 				"Server has been stopped and not restarted.")
 			return -1  
 
-		time.sleep( 1 )
+		time.sleep( 3 )
 
 		return serv.Server( servername, _sockfile, host, port, int(resAcc[1]), resDf[1] )
-	
-	elif cmd not in defs.local_cmds:
+		
+	elif cmd not in defs.local_cmds or ( cmd in defs.nonlocal_cmds and args.server_side ):
+		
+		if cmd == LOAD_FILE and not args.server_side:
+			files = []	
+			for fname in args.params:
+				if not os.path.exists( fname ):
+					print( "File not found: ", fname )
+					return -1
+				with open(fname) as f:
+					files.append( f.read() )
+					
+			args.params = files
+			cmdoptions.append((FROM_PARS, None))
+			
+		util.removeOptions(cmdoptions, SERVER_SIDE)
+		
+		if not cmdoptions:
+			cmdoptions = None
+				
 		res = Client( (cmd, args.params ), cmdoptions, _sockfile, host, port )
 		if res[0] != '1':
 			if args.cmd.startswith( "get" ):
@@ -418,41 +458,20 @@ def main(*kwargs):
 			return -1
 		print( res )
 		
-	elif hasattr( args, 'itemcmd' ):
-		if args.item:
-			res = Client( (args.cmd, [args.item]), cmdoptions, _sockfile, host, port )
-		else:
-			'''Default item'''
-			res = Client( ( args.cmd, None ), cmdoptions, _sockfile, host, port )
-		if res[0] != '1':
-			if args.cmd.startswith( "get" ):
-				print( "0", res )
-			elif res[0] == '0' :
-				log.error( "Cannot contact server." )
-			else:
-				log.error( res[1:] )
-			log.debug( res )
-			return -1
-		print( res )
-
-	elif hasattr( args, "actioncmd" ):
-		res = Client( ( args.cmd, None ), cmdoptions, _sockfile, host, port )
-		if res[0] != '1':
-			log.error( res )
-			return -1
-		print( res )
-	
 	# Local commands
 	
-	elif args.show_log:
+	elif cmd == SHOW_LOG:
 		with open( logfile, "r" ) as f:
 			ls = f.readlines()[-int(args.show_log):]
 			[print( x.strip('\n')) for x in ls ]
+
+	elif cmd == VERS:
+		print( "Regd version on client: " + defs.__version__ )			
 			
-	elif args.test_configure:
+	elif cmd == TEST_CONFIGURE:
 		subprocess.call( ["python", tsthelp, "--test-configure"])
 		
-	elif args.test_start:
+	elif cmd == TEST_START:
 		print("\nIt's recommended to shutdown all regd server instances before testing.")
 		ans = input("\nPress 'Enter' to begin test, or 'q' to quit.")
 		if ans and ans in 'Qq':
@@ -460,10 +479,10 @@ def main(*kwargs):
 		print("Setting up test, please wait...")
 		subprocess.call( ["python", "-m", "unittest", "regd.testing.tests.currentTest"])
 		
-	elif args.test_multiuser_begin:
+	elif cmd == TEST_MULTIUSER_BEGIN:
 		subprocess.Popen( [tsthelp, "--test-multiuser-begin"])
 
-	elif args.test_multiuser_end:
+	elif cmd == TEST_MULTIUSER_END:
 		subprocess.Popen( [tsthelp, "--test-multiuser-end"])	
 	
 	

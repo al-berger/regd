@@ -10,16 +10,18 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-07 07:43:47"
+__lastedited__="2015-07-11 06:52:48"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
 import ipaddress
 import fcntl  # @UnresolvedImport
 import regd.util as util, regd.defs as defs
 from regd.util import log, ISException, permissionDenied, persistentNotEnabled, valueNotExists,\
-	operationFailed, sigHandler, clientConnectionError, unknownDataFormat
-from regd.stor import read_locked, list_tokens, add_token, write_locked, get_token,\
+	operationFailed, sigHandler, unrecognizedParameter,\
+	unrecognizedSyntax
+from regd.stor import read_locked, list_tokens, write_locked, get_token,\
 	read_sec_file, remove_section, remove_token, getstor
+import regd.stor as stor
 import __main__  # @UnresolvedImport
 from regd.defs import *  # @UnusedWildImport
 
@@ -44,11 +46,11 @@ class RegdServer:
 		self.fs = getstor()
 		self.secfs = getstor()
 		self.fs['']=getstor()
-		self.fs['']['ses']=self.tokens
-		self.fs['']['sav']=self.perstokens
+		self.fs[''][stor.SESNAME]=self.tokens
+		self.fs[''][stor.PERSNAME]=self.perstokens
 		self.secfs['']=getstor()
-		self.secfs['']['ses']=self.tokens
-		self.secfs['']['sav']=self.perstokens
+		self.secfs[''][stor.SESNAME]=self.tokens
+		self.secfs[''][stor.PERSNAME]=self.perstokens
 		self.timestarted = None
 		self.useruid = None
 			
@@ -121,6 +123,8 @@ class RegdServer:
 			if os.path.exists(sockfile):
 				log.info("Signal is received. Unlinking socket file...")
 				os.unlink( sockfile )
+			if self.data_fd:
+				fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
 			sys.exit( 1 )
 			
 		sigHandler.push(signal.SIGINT, signal_handler)
@@ -198,6 +202,8 @@ class RegdServer:
 				connection.close()
 			if not cont:
 				log.info("Server exiting.")
+				if self.data_fd:
+					fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
 				sys.exit( 0 )		
 		
 	def handle_connection(self, connection, client_address):	
@@ -210,68 +216,19 @@ class RegdServer:
 			log.info( "new connection: client address: %s" % ( str( client_address ) ) )
 
 		connection.settimeout( 3 )
-		itemmarksize = len( self.itemsSep )
 		
 		data = bytearray()
 		util.recvPack(connection, data)
 		
 		log.debug("data: %s" % (data[:1000]))
-		data = data[10:].decode( 'utf-8' )
-		'''
-		# Server commands and regd command line commands and options are two different sets:
-		# the latter is the CL user interface, and the former is the internal communication 
-		# protocol.
-		# Regd client receives commands from the command line, converts it to server command 
-		# syntax, and sends it in the form of command packet to the server.
-		# Each packet contains exactly one command and related to it options, if any.
-		# Format of command packets:
-		# <COMMAND> <NUMPARAMS> [<PARAMLENGTH> <PARAM>] ... [OPTION NUMPARAMS PARAMLENGTH PARAM]...
-		cmdOptions = []
-		cmd = None
-		cmdData = []
-		while data:
-			params=[]
-			word, _, data = data.partition(' ')
-			if not data:
-				raise ISException(unknownDataFormat)
-			numparams, _, data = data.partition(' ')
-			try:
-				numparams = int( numparams )
-				for i in range(0, numparams):
-					paramlen, _, data = data.partition(' ')
-					paramlen = int( paramlen )
-					if not (paramlen <= len( data )): raise
-					if not paramlen: raise 
-					param = data[:paramlen]
-					data = data[paramlen+1:]
-					params.append(param)					
-					
-				if word in defs.all_cmds:
-					# One command per packet
-					if cmd: raise 
-					cmd = word
-					if len( params ) == 0:
-						cmdData = None
-					elif len(params) == 1:
-						cmdData = params[0]
-					else:
-						cmdData = params
-				elif word in defs.cmd_opts:
-					cmdOptions.append(( word, params ))
-				else:
-					raise 
-			except:
-				raise ISException(unknownDataFormat)
-			
-		if not cmd:
-			raise ISException(unknownDataFormat)
-			'''
+		data = data[10:] #.decode( 'utf-8' )
+
 		cmdOptions=[]
 		cmdData=[]
 		cmd = util.parsePacket(data, cmdOptions, cmdData)
 			
 		log.info( "command received: {0} {1}".format( cmd, cmdData ) )
-		
+		log.info( "command options: {0}".format( cmdOptions ) )
 
 		# Three response classes:
 		# 0 - program error
@@ -310,233 +267,206 @@ class RegdServer:
 				elif self.acc == PL_PUBLIC_READ:
 					if cmd in pubread_cmds:
 						perm = True 
-
+		log.debug("perm: {0}".format( perm ) )
 		if not perm:
 			resp = str( ISException( permissionDenied, cmd ) )
-		elif not self.data_fd and cmd in pers_cmds:
+		elif not self.data_fd and util.getSwitches(cmdOptions, PERS)[0]:
 			resp = str( ISException(persistentNotEnabled))
 		else:
 			self.mcmd[cmd] = 1 if cmd not in self.mcmd else self.mcmd[cmd]+1
 			
 			# -------------- Command handling -----------------
+			fpar = None
+			if len( cmdData ):
+				fpar = cmdData[0]
+			spar = None
+			if len( cmdData ) > 1:
+				spar = cmdData[1] 
 			
-			if cmd == STOP_SERVER:
-				resp = "1"
-
-			elif cmd == CHECK_SERVER:
-				resp = "1Up and running since {0}\nUptime:{1}.".format(	
-						str(self.timestarted).rpartition(".")[0], 
-						str(datetime.datetime.now() - self.timestarted).rpartition(".")[0])
-			
-			elif cmd == REPORT:
-				if not len( cmdData ):
-					resp = "0Unrecognized command syntax: the command parameter is missing."
-				else:
-					if cmdData == defs.ACCESS:
-						resp = "1{0}".format( self.acc )
-					elif cmdData == defs.STAT:
-						resp = "1" + self.prepareStat()
-					elif cmdData == defs.DATAFILE:
-						resp = "1" + self.datafile
-					else:
-						resp = "0Unrecognized command syntax"
-						
-			elif cmd == LIST:
-				if not cmdData: cmdData = None
-				treeView = False
-				for op in cmdOptions:
-					if op[0] == TREE:
-						treeView = True
-				s = ""
-				try:
-					if not cmdData:
-						s = list_tokens(self.fs, cmdData, treeView)
-					elif cmdData.startswith("/ses"):
-						s = list_tokens(self.tokens, cmdData, treeView)
-					elif cmdData.startswith("/sav"):
-						s = list_tokens(self.perstokens, cmdData, treeView)
-					else:
-						raise ISException(valueNotExists, cmdData, "Section doesn't exist")
-					resp = "1"+s
-				except ISException as e:
-					resp = str(e)
+			log.debug("fpar: {0} ; spar: {1}".format( fpar, spar ) )
 				
-			elif cmd == ADD_TOKEN:
-				'''Strict add: fails if the token already exists.'''
-				try:
-					add_token( self.tokens, cmdData, noOverwrite = True )
+			try:
+			
+				if cmd == STOP_SERVER:
 					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == SET_TOKEN:
-				try:
-					add_token( self.tokens, cmdData )
+	
+				elif cmd == CHECK_SERVER:
+					resp = "1Up and running since {0}\nUptime:{1}.".format(	
+							str(self.timestarted).rpartition(".")[0], 
+							str(datetime.datetime.now() - self.timestarted).rpartition(".")[0])
+					
+				elif cmd == VERS:
+					resp = "1 Regd version on server: " + defs.__version__
+				
+				elif cmd == REPORT:
+					if not fpar:
+						resp = "0Unrecognized command syntax: the command parameter is missing."
+					else:			
+						if fpar == defs.ACCESS:
+							resp = "1{0}".format( self.acc )
+						elif fpar == defs.STAT:
+							resp = "1" + self.prepareStat()
+						elif fpar == defs.DATAFILE:
+							resp = "1" + self.datafile
+						else:
+							resp = "0Unrecognized command syntax."
+							
+				elif cmd == SHOW_LOG:
+					n = 20
+					if spar:
+						try:
+							n = int( spar )
+						except ValueError as e:
+							raise ISException(unrecognizedParameter, spar, 
+								moreInfo="Number of lines only must contain digits.")
+					resp = "1" + util.getLog(n)
+														
+				elif cmd == LIST:
+					treeView = False
+					for op in cmdOptions:
+						if op[0] == TREE:
+							treeView = True
+					lres = []
+					if not cmdData:
+						self.fs.listItems( lres, treeView, 0, False)
+					elif fpar.startswith(stor.SESPATH):
+						self.tokens.listItems(lres, treeView, 0, False)
+					elif fpar.startswith(stor.PERSPATH):
+						self.perstokens.listItems( lres, treeView, 0, False)
+					else:
+						raise ISException(valueNotExists, fpar, "Section doesn't exist.")
+					resp = "1"+"\n".join(lres)
+					
+				elif cmd in (ADD_TOKEN, LOAD_FILE):
+					dest = None
+					noOverwrite = True
+					if not fpar:
+						raise ISException(unrecognizedSyntax, moreInfo="No items specified.")
+					for op in cmdOptions:
+						if op[0] == DEST:
+							if not op[1] or not self.fs.isPathValid(op[1]):
+								raise ISException(unrecognizedParameter, 
+									moreInfo="Parameter '{0}' must contain a valid section name.".format(DEST))
+							dest = op[1]
+								
+						if op[0] == PERS:
+							if dest:
+								raise ISException(unrecognizedSyntax, 
+									moreInfo="{0} and {1} cannot be both specified for one command.".format(
+																					DEST, PERS))
+							dest = stor.PERSPATH
+						
+						if op[0] == FORCE:
+							noOverwrite = False
+						
+					# Without --dest or --pers options tokens are always added to /ses
+					if not dest:
+						dest = stor.SESPATH
+						
+					if cmd == ADD_TOKEN:
+						log.debug("dest: {0} .".format( dest ) )
+							
+						for tok in cmdData:
+							if dest:
+								self.fs.addTokenToDest(dest, tok, noOverwrite )
+							else:
+								self.fs.addToken( tok, noOverwrite )
+						
+						if dest and dest.startswith(stor.PERSPATH):
+							write_locked( self.data_fd, self.perstokens )
+							
+						resp = "1"
+						
+					elif cmd == LOAD_FILE:
+						'''Load tokens from a file.'''
+						frompars = util.getSwitches( cmdOptions, FROM_PARS )[0]
+						log.debug("from_pars: {0}; dest: {1} .".format( frompars, dest ) )
+							
+						if not frompars:
+							for filename in cmdData:
+								if os.path.exists( filename ):
+									stor.read_tokens_from_file(filename, tok, dest, noOverwrite)
+								else:
+									resp = "{0}File not found: {1}".format( valueNotExists, cmdData )
+						else:
+							stok = self.fs.getSectionFromStr(dest)
+							for file in cmdData:
+								stor.read_tokens_from_lines( file.split('\n'), stok, noOverwrite)
+							
+						resp = "1"
+				
+				elif cmd in ( GET_TOKEN, REMOVE_TOKEN, REMOVE_SECTION):
+					pers = util.getSwitches( cmdOptions, PERS)[0]
+					if not self.fs.isPathValid( fpar ):
+						fpar = "{0}/{1}".format(stor.PERSPATH if pers else stor.SESPATH, fpar)
+					elif stor.isPathPers(fpar):
+						pers = True
+						
+					log.debug( "pers: {0} ; fpar: {1}".format( pers, fpar ))
+												
+					if cmd == GET_TOKEN:
+						resp = "1" + self.fs.getToken(fpar)
+		
+					elif cmd == REMOVE_TOKEN:
+						self.fs.removeToken(fpar)
+						if pers:
+							stor.write_locked(self.data_fd, self.perstokens)
+						resp = "1"
+		
+					elif cmd == REMOVE_SECTION:
+						self.fs.removeSection(fpar)
+						if pers:
+							stor.write_locked(self.data_fd, self.perstokens)
+						resp = "1"
+						
+				elif cmd == LOAD_FILE_SEC:
+					if not fpar:
+						file = self.encFile
+					else:
+						file = fpar
+	
+					read_sec_file( file, self.secTokCmd, self.sectokens  )
 					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == ADD_TOKEN_PERS:
-				'''Strict add: fails if the token already exists.'''
-				try:
-					add_token( self.perstokens, cmdData, noOverwrite = True )
-					write_locked( self.data_fd, self.perstokens )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == SET_TOKEN_PERS:
-				try:
-					add_token( self.perstokens, cmdData )
-					write_locked( self.data_fd, self.perstokens )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == LOAD_TOKENS:
-				try:
-					pl = cmdData.find( self.itemsSep )
-					while pl != -1:
-						newitem = cmdData[:pl]
-						add_token( self.tokens, newitem )
-						cmdData = cmdData[( pl + itemmarksize ):]
-
-					add_token( self.tokens, cmdData )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == LOAD_TOKENS_PERS:
-				try:
-					pl = cmdData.find( self.itemsSep )
-					while pl != -1:
-						newitem = cmdData[:pl]
-						add_token( self.perstokens, newitem )
-						cmdData = cmdData[( pl + itemmarksize ):]
-
-					add_token( self.perstokens, cmdData )
-					write_locked( self.data_fd, self.perstokens )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == GET_TOKEN:
-				'''Get a token. '''
-				try:
-					resp = "1" + get_token( self.tokens, cmdData )
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == GET_TOKEN_PERS:
-				'''Get a persistent token. '''
-				try:
-					resp = "1" + get_token( self.perstokens, cmdData )
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == GET_TOKEN_SEC:
-				''' Get secure token. '''
-				if not len( cmdData ):
-					resp = "0No token specified."
-				else:
-					try:
-						if not self.sectokens():
+						
+				elif cmd == GET_TOKEN_SEC:
+					''' Get secure token. '''
+					if not fpar:
+						resp = "0No token specified."
+					else:
+						if not len( self.sectokens ):
 							'''Sec tokens are not read yet. Read the default priv. file.'''
 							if not self.defencread:
 								read_sec_file( self.encFile, self.secTokCmd, self.sectokens )
 								self.defencread = True
-						resp = "1" + get_token( self.sectokens, cmdData )
+						resp = "1" + get_token( self.sectokens, fpar )
+	
+				elif cmd == REMOVE_TOKEN_SEC:
+					self.sectokens.removeToken( fpar )
+					resp = "1"
+						
+				elif cmd == REMOVE_SECTION_SEC:
+					try:
+						remove_section( self.sectokens, fpar )
+						resp = "1"
 					except ISException as e:
 						resp = str( e )
-
-			elif cmd == LOAD_FILE:
-				'''Load tokens from a file.'''
-				try:
-					if os.path.exists( cmdData ):
-						self.tokens.read( cmdData )
-						resp = "1"
-					else:
-						resp = "{0}File not found: {1}".format( valueNotExists, cmdData )
-				except OSError as e:
-					resp = "{0}Cannot read the file: {1}".format( operationFailed, e.strerror )
-
-			elif cmd == LOAD_FILE_PERS:
-				'''Add persistent tokens from a file.'''
-				try:
-					if os.path.exists( cmdData ):
-						read_locked( self.data_fd, self.perstokens, False)
-						write_locked( self.data_fd, self.perstokens )
-						resp = "1"
-					else:
-						resp = "{0}File not found: {1}".format( valueNotExists, cmdData )
-				except OSError as e:
-					resp = "{0}Cannot read the file: {1}".format( operationFailed, e.strerror )
-
-			elif cmd == LOAD_FILE_SEC:
-				if not len( cmdData ):
-					file = self.encFile
-				else:
-					file = cmdData
-
-				try:
-					read_sec_file( file, self.secTokCmd, self.sectokens  )
+						
+				elif cmd == CLEAR_SEC:
+					self.sectokens = getstor()
 					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == REMOVE_TOKEN:
-				try:
-					remove_token( self.tokens, cmdData )
+	
+				elif cmd == CLEAR_SESSION:
+					self.sectokens = getstor()
+					self.tokens = getstor()
 					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == REMOVE_SECTION:
-				try:
-					remove_section( self.tokens, cmdData )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == REMOVE_TOKEN_PERS:
-				try:
-					remove_token( self.perstokens, cmdData )
-					write_locked( self.data_fd, self.perstokens )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-
-			elif cmd == REMOVE_SECTION_PERS:
-				try:
-					remove_section( self.perstokens, cmdData )
-					write_locked( self.data_fd, self.perstokens )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
 					
-			elif cmd == REMOVE_TOKEN_SEC:
-				try:
-					remove_token( self.sectokens, cmdData )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-					
-			elif cmd == REMOVE_SECTION_SEC:
-				try:
-					remove_section( self.sectokens, cmdData )
-					resp = "1"
-				except ISException as e:
-					resp = str( e )
-					
-			elif cmd == CLEAR_SEC:
-				self.sectokens = getstor()
-				resp = "1"
-
-			elif cmd == CLEAR_SESSION:
-				self.sectokens = getstor()
-				self.tokens = getstor()
-				resp = "1"
-					
+			except ISException as e:
+				resp = str(e)
+			except Exception as e:
+				resp = "0" + e.args[0]
+			except BaseException as e:
+				resp = "0" + str( e )
+				
 		try:
 			util.sendPack(connection, bytearray( resp, encoding = 'utf-8' ) )
 		except OSError as er:

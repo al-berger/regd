@@ -10,11 +10,13 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-__lastedited__ = "2015-07-06 18:42:26"
+__lastedited__ = "2015-07-11 01:42:00"
 
-import unittest, sys, os, pwd, logging, re
+import unittest, sys, os, pwd, logging, re, time
 from configparser import ConfigParser
 from regd.testing import test_help as th
+import regd.defs as defs
+import regd.tok as tok
 test_basic = False
 test_network = False
 test_multiuser = False
@@ -23,6 +25,7 @@ ntregs = None
 mtregs = None
 cp = None
 log = None
+loglevelname = None
 
 currentTest = None
 
@@ -31,7 +34,7 @@ currentTest = None
 class globInit():
 	def __init__(self):
 		global cp, log, test_basic, test_network, test_multiuser, tregs, ntregs, mtregs
-		global currentTest
+		global currentTest, loglevelname
 		
 		username = pwd.getpwuid( os.getuid() )[0]
 		homedir = None
@@ -79,24 +82,25 @@ class globInit():
 		
 		tryVerbose = ( "Try to configure and run this test with VERBOSE output" 
 						" level for more information.")
-		runConfigure = ( "\nPlease run 'regd --test-configure'.\n\nExiting.")
+		runConfigure = ( "\nPlease run 'regd test-configure'.\n\nExiting.")
 				
 		tregs = []
 
 		# Setting up test
 		currentTest = unittest.TestSuite()
 		currentTest.addTest(TokensTest())
+		currentTest.addTest(FilesTest())
 		
 		testtype = cp["general"].get("test_type", "1")
 		
 		if testtype == '1':
 			test_basic = True
-			tregs = th.filesocket_setup(loglevelname, None)
+			'''tregs = th.filesocket_setup(loglevelname, None)
 			if not len(tregs):
 				print("Error: could not start BASIC test.")
 				if loglevel == "1":
 					print( tryVerbose )
-				errorExit()
+				errorExit()'''
 			
 			currentTest.addTest(BasicPermissionTest())
 			print("\nStarting BASIC test.")
@@ -115,12 +119,12 @@ class globInit():
 				errorExit()
 				
 			nsids = [(host, port)]
-			ntregs = th.network_setup(nsids, loglevelname, None)
+			'''ntregs = th.network_setup(nsids, loglevelname, None)
 			if not len(ntregs):
 				print("Error: could not start NETWORK test.")
 				if loglevel == "1":
 					print( tryVerbose )
-				errorExit()
+				errorExit()'''
 			
 			print("\nStarting NETWORK test.")
 			
@@ -137,12 +141,12 @@ class globInit():
 					" on this system. {1}").format(multiuser, runConfigure ))
 				errorExit()
 				
-			mtregs = th.multiuser_setup(multiuser, loglevelname, None)
+			'''mtregs = th.multiuser_setup(multiuser, loglevelname, None)
 			if not len(mtregs):
 				print("Error: could not start MULTIUSER test.")
 				if loglevel == "1":
 					print( tryVerbose )
-				errorExit()
+				errorExit()'''
 				
 			currentTest.addTest(MultiuserPermissionTest())
 			print("\nStarting MULTIUSER test.")
@@ -173,62 +177,98 @@ class PrintDot:
 
 class TokensTest(unittest.TestCase):
 	'''Checking correct handling of various character combinations in various token parts.'''
-	tregs = []
 		
 	def __init__(self, methodName='runTest'):
 		self.longMessage = False
 		super(TokensTest, self).__init__("runTest")
 			
-	@classmethod
-	def setUpClass(cls):
-		super(TokensTest, cls).setUpClass()
-		print("\nStarting testing token operations.")
-		if test_basic:
-			cls.tregs.append( tregs[0] )
-		if test_network:
-			cls.tregs.append( ntregs[0] )
-		if test_multiuser:
-			cls.tregs.append( mtregs[0] )
-			
 	# Testing tokens contents
 
-	def testAdd(self):
-		print("\nTesting adding tokens to server...")
-		tf = th.TokenStringFeeder( th.testtokens )
+	def runTest(self):
+		log.info("\nStarting testing token operations.")
+		tregs = th.filesocket_setup( ["tst"], ["private"], loglevelname, None )
+		tf = th.TstTokenFeeder( th.testParts, th.btestParts, 5 )
+		time.sleep(3)
 
-		for treg in self.tregs:
-			self.assertTrue( treg.do_token_cmd( "--add", tf, PrintDot(10) ), 
+		log.info("\nTesting adding tokens to server...")
+		for treg in tregs:
+			self.assertTrue( treg.do_token_cmd( defs.ADD_TOKEN, tf, fb=PrintDot( 10 ) ), 
 				"Failed adding tokens to registry {0}.".format( treg.servName ) )
 		log.info( "\n%i tokens were added." % ( len( tf ) ) )
 		
-	def testCompare(self):
-		print("\nChecking tokens added to server...")
-		cf = th.ChecksFeeder( th.testtokens )
-		for treg in self.tregs:
-			self.assertTrue( treg.compare( "--get", cf, PrintDot(10) ),
+		log.info("\nChecking tokens added to server...")
+		tf.setMode(tok.TokenFeeder.modeKeyVal)
+		for treg in tregs:
+			self.assertTrue( treg.compare( defs.GET_TOKEN, tf, binary=False, fb=PrintDot( 10 ) ),
 				"Failed comparing tokens in registry {0} with original values.".format( 
 				treg.servName ) )
-		log.info( "\n%i tokens were checked." % ( len( cf ) ) )
-			
-	def testRemove(self):
-		print("\nTesting removing tokens from server...")
-		tk = th.KeysFeeder( th.testtokens )
-		for treg in self.tregs:
-			self.assertTrue( treg.do_token_cmd( "--remove", tk, PrintDot(10) ),
+		log.info( "\n%i tokens were checked." % ( len( tf ) ) )
+
+		log.info("\nTesting removing tokens from server...")
+		tf.setMode(tok.TokenFeeder.modeKey)
+		for treg in tregs:
+			self.assertTrue( treg.do_token_cmd( defs.REMOVE_TOKEN, tf, fb=PrintDot( 10 ) ),
 						"Failed removing tokens from registry {0}.".format( treg.servName ) )
-		log.info( "\n%i tokens were removed." % ( len( tk ) ) )
+		log.info( "\n%i tokens were removed." % ( len( tf ) ) )
+		th.filesocket_finish(["tst"])
 		
-	# Testing sections
-	
-	def testRemoveSections(self):
-		pass
+class FilesTest(unittest.TestCase):
 		
+	def __init__(self, methodName='runTest'):
+		self.longMessage = False
+		super(FilesTest, self).__init__("runTest")
+			
+	# Testing tokens contents
+
 	def runTest(self):
-		self.testAdd()
-		self.testCompare()
-		self.testRemove()
-
-
+		log.info("\nStarting testing file handling.")
+		tregs = th.filesocket_setup( ["tst"], ["private"], loglevelname, None )
+		time.sleep(3)
+		tf = tok.TokenFeeder( th.datafile_tokens )
+		tf.setMode(tok.TokenFeeder.modeKeyVal)
+		
+		#s = input("Server started")
+		
+		# Upon starting the server should contain tokens from the 'datafile_lines'
+		for treg in tregs:
+			self.assertTrue( treg.compare( defs.GET_TOKEN, tf, binary=False, 
+								cmdOpts=[(defs.PERS, None)], fb=PrintDot( 10 ) ),
+				"Failed comparing tokens in registry {0} with original values.".format( 
+				treg.servName ) )
+			
+		#s = input("Tokens checked")
+			
+		# Adding some new persistent tokens
+		tf1 = th.TstTokenFeeder( th.testParts, th.btestParts, 5 )
+		for treg in tregs:
+			self.assertTrue( treg.do_token_cmd(defs.ADD_TOKEN, tf1, 
+											cmdOpts=[(defs.PERS, None)], fb=PrintDot( 10 )),
+											"Failed to add tokens to registry." )
+		
+		s = input("File test: New tokens added.")
+		
+		# Restarting server
+		tregs = th.filesocket_setup( ["tst"], ["private"], loglevelname, None, useDataFile=True )
+			
+		s = input("File test: server restarted")
+		
+		# Upon starting the server should contain tokens from the 'datafile_lines' and
+		# newly added tokens
+			
+		for treg in tregs:
+			self.assertTrue( treg.compare( defs.GET_TOKEN, tf, binary=False, 
+								cmdOpts=[(defs.PERS, None)], fb=PrintDot( 10 ) ),
+				"Failed comparing tokens in registry {0} with original values.".format( 
+				treg.servName ) )
+			s = input("File test: datafile tokens checked.")
+			tf1.setMode(tok.TokenFeeder.modeKeyVal)
+			self.assertTrue( treg.compare( defs.GET_TOKEN, tf1, binary=False, 
+								cmdOpts=[(defs.PERS, None)], fb=PrintDot( 10 ) ),
+				"Failed comparing tokens in registry {0} with original values.".format( 
+				treg.servName ) )
+			s = input("File test: test tokens checked.")
+			
+		
 #@unittest.skipUnless(test_basic, "Skipping basic file socket permission test.")
 class BasicPermissionTest(unittest.TestCase):
 	'''Test permission levels.'''
@@ -269,11 +309,11 @@ class MultiuserPermissionTest(unittest.TestCase):
 		testkey = th.toksections[0] + ":" + th.toknames[0]
 		for treg in mtregs:
 			if treg.acc == "private" or not treg.acc:
-				self.assertFalse( treg.sendCmd("--add" "a=b"), 
+				self.assertFalse( treg.sendCmd("add" "a=b"), 
 								"Failed to check private access for --add command.")
-				self.assertFalse( treg.sendCmd("--get", testkey), 
+				self.assertFalse( treg.sendCmd("get", testkey), 
 								"Failed to check private access for --get command.")
-				self.assertFalse( treg.sendCmd("--remove", testkey), 
+				self.assertFalse( treg.sendCmd("remove", testkey), 
 								"Failed to check private access for --remove command.")
 		log.info("Done.")
 		
