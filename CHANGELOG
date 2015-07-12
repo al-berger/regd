@@ -1,12 +1,14 @@
-Version 0.5.3 (2015-..-..)
+Version 0.6.0 (2015-07-..)
 ---------------------------
 New features:
+- Tokens directory-like organisation structure
+- --add-file command
 
 Version 0.5.2 (2015-06-28)
 ---------------------------
 New features:
--- auto-start option
--- the issue with data file locking is fixed 
+- --auto-start option
+- the issue with data file locking is fixed 
 
 Version 0.5.1 (2015-06-26)
 ---------------------------
