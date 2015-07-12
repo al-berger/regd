@@ -1,11 +1,11 @@
 .TH regd "1"
 .SH NAME
 .PP
-regd \- Registry daemon.
+regd \- Data cache server.
 
 .SH SYNOPSIS
 .PP
-regd <\fICOMMAND\fP> [\fIARGUMENTS\fP]
+regd <\fICOMMAND\fP> [\fIPARAMETERS\fP] [\fIOPTION\fP [\fIOPTION\_VALUE\fP]]...
 
 .SH DESCRIPTION
 .PP
@@ -14,7 +14,7 @@ information in the form of name/value pairs (tokens) and returning it
 in response to commands.
 
 .PP
-\fBregd\fP can run either as a network server on a dedicated IP address
+\fBregd\fP can run either as a network server on a dedicated HOST:PORT address
 or as a local server using a local file ("Unix file socket") as a server
 address.
 
@@ -22,17 +22,18 @@ address.
 Once \fBregd\fP server is started it remains running and responds to commands
 which are sent to it. Commands manage the server behaviour and are used
 for adding information to the server storage, retrieving or deleting it,
-restarting and stopping the server, getting reports, etc.
+restarting and stopping the server, getting reports or server variable values,
+etc. When not executing a user command \fBregd\fP server remains in idle state
+and consumes almost no resources.
 
 .PP
 Commands can be sent to the running \fBregd\fP server in one of two ways:
-via command line with another \fBregd\fP instance invoked as a client, or
-via sockets, if the connection to \fBregd\fP server is made from another
-or program.
+via command line using \fBregd\fP as a client, or via sockets. Both these ways
+can be used for connecting to \fBregd\fP both manually and programmatically.
 
 .PP
-Any user on a system can have a separate regd server running, containing
-her own information. If needed, one user can have several regd server
+Any user on a system can have her own \fBregd\fP server running, containing
+her own information. If needed, one user can have several \fBregd\fP server
 instances running with different server names and different sets of information.
 Each server instance has its own persistent and temporary storage and its
 own permission access level.
@@ -43,8 +44,8 @@ access levels for all its data: \fIprivate\fP, \fIpublic\-read\fP or \fIpublic\f
 
 .SS File socket servers and Internet socket servers
 .PP
-\fBregd\fP server can be started either on a file ("UNIX domain") socket or
-on Internet socket with an assigned IP address and port number. Any user on
+\fBregd\fP server can be started either on a file ("UNIX domain socket") or
+on an Internet socket with an assigned IP address and port number. Any user on
 a system can have multiple \fBregd\fP servers of both types simultaneously
 running each with its own data storage. The main differences between file socket
 servers and Internet socket servers are the following:
@@ -52,76 +53,102 @@ servers and Internet socket servers are the following:
 
 \item 
 .PP
-File socket server runs using a common file as its address and can only be
-accessed by users who have access to the filesystem where the file socket is
+File socket server runs using a usual filesystem file as its address and can
+only be accessed by users who have access to the filesystem where the file socket is
 located. Whereas Internet socket servers can be accessed from any computer, from
-which the network address ofthe \fBregd\fP server can be reached.
+which the network address of the \fBregd\fP server can be reached.
 \item 
 .PP
 File socket servers have access permission system which allows to restrict access
 to data only to certain users accounts, and can be used for safely sharing private
 data only between trusted users. Internet socket servers can only restrict data
 access to certain IP addresses from which they accept commands.
+.SS Regd communication protocol
+.PP
+\fBregd\fP server is started, stopped and communicated with using the \fBregd\fP communication protocol. According to this protocol, all client\-server interactions
+are done in four steps:
+.IP \(bu 2
+
+\item Client sends a \fIquery\_message\fP to Server.
+1.1. Server receives the \fIquery\_message\fP.
+\item Server sends a \fIresult\_message\fP to Client.
+2.2. Client receives the \fIresult\_message\fP.
+.PP
+All \fIquery\_messages\fP consists of one required part: \fIcommand\fP , and one optional
+part: \fIoptions\fP. The \fIcommand\fP part must contain exactly one command name, which can
+be sufficient for parameterless commands (e.g. \fBcheck\fP), and also can include
+either the required parameters (e.g. \fBget\fP command) or optional parameters for commands with default parameter values (e.g. \fBload\-file\-sec\fP). The general \fBregd\fP \fIquery\_message\fP syntax is
+the following:
+
+.PP
+regd <\fICOMMAND\_NAME\fP> [\fICOMMAND\_PARAMETERS\fP] [\fIOPTION\_NAME\fP [\fIOPTION\_PARAMETERS\fP]]...
+
+.PP
+Regd command and option names are distinguished by a different naming style. Option
+names have '\-\-' or '\-' prefixes (for long or short name versions accordingly); e.g.: \fB\-\-pers\fP. Command names don't have those prefixes: \fBadd\fP, \fBshow\-log\fP.
+
+.PP
+\fIResult\_messages\fP have the following general syntax:
+
+.PP
+<\fI1|0\_CODE\fP>[\fIQUERY\_RESULT\fP]
+
+.PP
+The 1|0 code is either '1' or '0' digit which is always the first symbol in the
+\fIresult\_message\fP. The '1' means that the query was completed successfully, and '0'
+means, that the query failed and the rest of the message is the failure report.
+
 .SS Starting regd server
 .PP
-When \fBregd\fP server is started (invoked with the \fB\-\-start\fP option),
-it must be provided with four configuration options (all of them have
-default values): server address, access level, server name and data file.
+When \fBregd\fP server is started, it must be provided with four configuration options (all of them have default values): \fIserver address\fP, \fIserver name\fP, \fIaccess level\fP and \fIdata file\fP.
 
 .PP
 \fIServer\_address\fP
 
 .PP
-Server address is identifying information with which it can be contacted from
-another process (or from command line).
+The server address is the identifying information with which the server can be contacted from another process (or from command line).
 
 .PP
 If \fBregd\fP is started on an IP address,  the address must be specified with
-\fB\-\-host\fP and \fB\-\-port\fP command line options (see below).
+\fB\-\-host\fP and \fB\-\-port\fP options (see below).
 
 .PP
 If \fBregd\fP is started on a file socket (which is default), its address is the
-server name, specified on the command line (or the default name if the server
+name, specified in the \fB\-\-server\-name\fP option (or the default name if the server
 name wasn't sepecified). If a file socket server is contacted from another
-user account, its address includes the user name of the server process owner
-(the name of the account from which the server was started).
+user account, the server name must be prepended with the user name of the server process owner (the name of the account from which the server was started) and '@' character. E.g.: username@servername.
 
 .PP
 \fIServer\_name\fP
 
 .PP
 If one user has more than one \fBregd\fP server running on \fIfile\_sockets\fP, these
-servers need to be distinguished via different server instance names. The server
-name is assigned to a \fIregd\fP server instance on startup with \fB\-\-server\-name\fP
-command line option. The server name can have length up to 32 characters. Names
+servers need to be distinguished between each other via different server names. The server name is assigned to a \fIregd\fP server instance on startup with \fB\-\-server\-name\fP
+option. The server name can have the length up to 32 characters. Names
 must be unique within one user account. Different users can have identically
 named \fIregd\fP servers.
 
 .PP
-If a user has only one \fBregd\fP server instance running on a file socket, then this
+If a user has only one \fBregd\fP server running on a file socket, then this
 server may or may not be provided with a name (if no name is provided on startup,
-the default name is used).
+the default name is used and the server can be communicated without specifying its name).
 
 .PP
-\fBregd\fP servers running on IP addresses don't have names and \fB\-\-server\-name\fP
-option is ignored on their startup.
+\fBregd\fP servers running on IP addresses don't have names (additional to the 'host:port' address) and \fB\-\-server\-name\fP option is ignored on their startup.
 
 .PP
 \fIAccess\_level\fP
 
 .PP
-A \fBregd\fP server running on a UNIX file socket has a permission level for accessing
-and manipulating its data. A single permission level applies to all the data kept
-in session and persistent tokens on the server. The \fBregd\fP permission control
-distinguish two groups of users: \fIprivate\fP and \fIpublic\fP. The \fIprivate\fP group includes
-the server user who started the server ("server process owner") and users listed in the
+A \fBregd\fP server running on a UNIX file socket has the permission level for accessing
+and manipulating its data. Currently a single permission level applies to all the data kept in session and persistent tokens on the server. The \fBregd\fP permission control
+distinguishes two groups of users: \fIprivate\fP and \fIpublic\fP. The \fIprivate\fP group includes
+the user who started the server ("server process owner") and users listed in the
 \fBtrusted\_users\fP option in \fIregd.conf\fP file ("trusted users"). The \fIpublic\fP group
 includes all other users.
 
 .PP
-Secure tokens remain private at all permission levels (public permission levels don't
-apply to secure tokens). Server's permission level is set on server startup with
-\fB\-\-access\fP option and can be one of three values:
+The server's access permission level is set on server startup with \fB\-\-access\fP option and can be one of three values:
 .IP \n+[step]
 
 \item 
@@ -132,9 +159,7 @@ server. All commands from other users are denied. This is the default level.
 .PP
 \fBpublic\-read\fP : The data on the server except of secure tokens is "world\-readable".
 The server process owner and trusted users have full access to the server. From other
-users the following commands are executed: \fB\-\-check\fP, \fB\-\-list\-all\fP, \fB\-\-list\-pers\fP,
-\fB\-\-list\-sessions\fP, \fB\-\-get\fP, \fB\-\-get\-pers\fP. All other commands from other users
-are denied.
+users the following commands are executed: \fBget\fP, \fBls\fP, \fBcheck\fP. All other commands from other users are denied.
 \item 
 .PP
 \fBpublic\fP : The data on the server except of secure tokens is "world\-readable" and
@@ -142,31 +167,24 @@ are denied.
 modify and remove session and persistent tokens (secure tokens remain private and
 can be accessed only by the server process owner and trusted users).
 .PP
-If \fB\-\-access\fP option is not present at server startup, then the server permission level
-is set as 'private' by default.
+If \fB\-\-access\fP option is not specified at server startup, the server permission level is set as 'private' by default.
 
 .PP
-The following commands can be executed only by the server process owner and trusted users
-at all permission levels ("private commands"): \fB\-\-start\fP, \fB\-\-stop\fP, \fB\-\-restart\fP,
-\fB\-\-add\-sec\fP, \fB\-\-get\-sec\fP, \fB\-\-load\-file\-sec\fP, \fB\-\-remove\-sec\fP, \fB\-\-remove\-section\-sec\fP,
-\fB\-\-clear\-sec\fP, \fB\-\-report\-stat\fP, \fB\-\-show\-log\fP.
+The following commands can be executed only by the server process owner and trusted users at all permission levels ("private commands"): \fBstart\fP, \fBstop\fP, \fBrestart\fP,
+\fBadd\-sec\fP, \fBget\-sec\fP, \fBload\-file\-sec\fP, \fBremove\-sec\fP, \fBremove\-section\-sec\fP,
+\fBclear\-sec\fP, \fBreport\-stat\fP, \fBshow\-log\fP.
 
 .PP
 \fIData\_file\fP
 
 .PP
-Each server instance by default has its own persistent storage: data file from which
-persistent tokens are read on startup and to which they are saved back when new tokens are
-added, or existing tokens are modified or removed. The data file name can be provided
-with \fB\-\-datafile\fP command line option on server startup. The default name of the data file
-is used if \fB\-\-datafile\fP option is not present on startup and automatically composed out
-of three parts:
+Each server instance by default has its own persistent storage: the file from which the
+persistent tokens are read on startup and to which they are saved back when new tokens are added, or existing tokens are modified or removed. The data file name can be provided
+with \fB\-\-datafile\fP command line option on server startup. The default name of the data file is used if \fB\-\-datafile\fP option is not present on startup and automatically composed out of three parts:
 .IP \(bu 2
 
-\item Directory: the \fIregd\fP data directory defined in \fB'datadir'\fP option in \fIregd.conf\fP,
-or default one if 'datadir' is not defined .
-\item File: for file socket servers the server name is used as a data file name; for servers
-on IP addresses the combination of host name and port number is used as.
+\item Directory: the \fBregd\fP \fIdata directory\fP defined in \fB'datadir'\fP option in \fIregd.conf\fP, or the default one (\{$HOME/.config/regd/data\}) if 'datadir' is not defined .
+\item File: for file socket servers the server name is used as a data file name; for servers on IP addresses the combination of host name and port number is used.
 \item Extension: ".data" file extension
 .PP
 The presistent storage can be disabled for a server by specifying "None" in the
@@ -175,28 +193,27 @@ session tokens and commands relating to persistent tokens will be denied.
 
 .SS Communicating with regd server
 .PP
-A running \fIregd\fP server keeps listening for incoming commands on the address on
-which it has been started (file socket or IP address). To communicate with a server
-either the socket/IP address can be used directly from other programs or \fIregd\fP itself
-can be called in client mode to send a command to a \fIregd\fP server.
+A running \fBregd\fP server keeps listening for incoming commands on the address on
+which it has been started (file socket or IP address). The communication with a server
+can be done either using the socket/IP address directly from other programs or using \fBregd\fP in client mode to send a command to a \fBregd\fP server.
 
 .PP
-To send a command to a \fIregd\fP server, \fIregd\fP in the client mode is invoked with
+To send a command to a \fBregd\fP server, \fBregd\fP in the client mode is invoked with
 following general syntax (items in square brackets are optional):
 
 .PP
-\fBregd\fP [<\fI\-\-host\fP> <\fI\-\-port\fP> | <\fI\-\-server\-name\fP>] [\fI\-\-log\-level\fP] \fIcommand\fP
+ [\fI\-\-host\fP \fI\-\-port\fP | \fI\-\-server\-name\fP] [\fI\-\-log\-level\fP]
 
 .PP
 A server running on an IP address must always be contacted with the \fB\-\-host\fP
-and \fB\-\-port\fP present on the command line:
+and \fB\-\-port\fP specified on the command line:
 
 .PP
-$ regd \-\-host some.hostname \-\-port NNNN \-\-get "someItem"
+$ regd get "someData" \-\-host some.hostname \-\-port NNNN
 
 .PP
 A server running on a UNIX file socket must be contacted through it's server name
-(if it was started with a \fB\-\-server\-name\fP option) and with the username of the
+(if the server was started with a \fB\-\-server\-name\fP option) and with the username of the
 server process owner if the server was started by a user other than the user
 sending it a command. User name is prefixed to the server name with '@' symbol:
 
@@ -204,42 +221,42 @@ sending it a command. User name is prefixed to the server name with '@' symbol:
 alice@servername
 
 .PP
-If the server was started without server name, then only the user name with '@' must be
+If the server was started without a server name, then only the username with '@' must be
 used as the server address. For example, if a server was started by user 'alice' without
 the server name, as follows:
 
 .PP
-$ regd \-\-start \-\-access public\-read
+$ regd start \-\-access public\-read
 
 .PP
 then user 'alice' can contact the server as follows:
 
 .PP
-$ regd \-\-add someItem=someValue
+$ regd add someItem=someValue
 
 .PP
-User 'bob' can contact this server as follows:
+User 'bob' can contact that server as follows:
 
 .PP
-$ regd \-\-server\-name alice@ \-\-get someItem
+$ regd get someItem \-\-server\-name alice@
 
 .PP
 If the server was started by user 'alice' with the name 'info':
 
 .PP
-$ regd \-\- start \-\-server\-name info \-\-access public\-read
+$ regd start \-\-server\-name info \-\-access public\-read
 
 .PP
 then user 'alice' can contact the server as follows:
 
 .PP
-$ regd \-\-server\-name info \-\-add someItem=someInfo
+$ regd add someItem=someInfo \-\-server\-name info
 
 .PP
 and user 'bob' can contact the server as follows:
 
 .PP
-$ regd \-\-server\-name alice@info \-\-get someItem
+$ regd get someItem \-\-server\-name alice@info
 
 .SS Tokens
 .PP
@@ -248,31 +265,72 @@ of information storage. A token consists of a token identifier (\fIname\fP)
 and data (\fIvalue\fP), which is associated with this name. Both name and
 value are Unicode strings and can hold arbitrary Unicode values of
 arbitrary length. (However, see the NOTES section below about
-special cases when a token contains '=', '\\' or ':' characters.)
-The token name is used as as the token identifier.
+special cases when a token contains '=', '\\' or '/' characters.)
+The token name is used as the token identifier.
 
 .PP
-Tokens are grouped in sections. Token name can contain an
-optional section name, which is the part of the name up to the
-first colon. E.g.:
-"SECTION NAME : token name".
-If the section name is not present in the token name, the token
-is stored in the section named 'general'. If the section name contains
-colons within itself, they must be prepended with backslashes.
+Tokens are grouped in sections. Sections have their own names and can
+contain other sections. Overall the tokens and sections organization structure
+resembles the hierarchical structure of files and directories with naming
+convention being similar to the Unix file and directory naming rules.
+
+.PP
+Each token is stored at a unique address which consists of the "section path"
+and the token name:
+
+.PP
+\fB\fCsection1/section2/tokenName1\fR
+
+.PP
+To store a token in a certain section, the section name (and the names of all
+containing sections \- "section path") must be specified along with the token name
+when the token is added to a server:
+
+.PP
+`regd add "section1/section2/tokenName1 = tokenValue1"
+
+.PP
+If the section path is not specified when a token is added, the token is stored
+in the default section and can be accessed without a section name.
+
+.PP
+To access the token value, the fully qualified name token name (the section path
+and the token name) must always be used:
+
+.PP
+\fB\fCregd get "section1/section2/tokenName1"\fR
+
+.PP
+(Note the absence of '/' character in the beginning of the section path.)
+The fully qualified name includes one more component: the token storage type.
 
 .PP
 A token can be one of two types regarding its lifetime:
 \fIsession\fP token or \fIpersistent\fP token. Session tokens
-exist in the registry from the moment of their addition
-until the program's exit or until their removal with a command.
+exist in the server storage from the moment of their addition
+until the program's exit or until their removal.
 Persistent tokens are automatically stored in a disk file, automatically
 loaded to the registry on each program start and exist until
 they are explicitly removed with a removal command.
 
+.PP
+When a token is added to a server, it is added by default as a session token.
+To add a token as a persistent token, the \fB\-\-pers\fP option should additionally
+be specified:
+
+.PP
+\fB\fCregd get "section1/section2/tokenName1" \-\-pers\fR
+
+.PP
+So one can have two tokens on one server with identical section paths and names,
+but with different storage types. When adding or accessing session tokens, only their
+section path and name must be specified. When adding or accessing persistent tokens,
+the \fB\-\-pers\fP flag must be added to the query options.
+
 .SS Secure tokens
 .PP
-Secure tokens are the tokens that have certain access restrictions and security
-enhancements in their processing:
+Secure tokens are tokens that have certain access restrictions and security
+enhancements in their handling:
 .IP \n+[step]
 
 \item 
@@ -291,78 +349,91 @@ they can automatically be loaded from an encrypted file or from other secure
 source. with secure loading command: \fB\-\-load\-file\-sec\fP . This command by default
 is meant to call 'gpg' encryption program, which reads an encrypted file with secure
 tokens, prompting the user for the password if needed, and then pipes the file text
-to the \fBregd\fP through a shell pipe. A user can use any other command of loading
+to \fBregd\fP through a shell pipe. A user can use any other command of loading
 secure tokens as long as it returns the list of "name=value" pairs through a shell
 pipe.
 .SH COMMANDS
 .SS Help and version
-.SS \-\-help
+.SS help
 .PP
 Display short command summary.
 
-.SS \-\-version
+.SS version
 .PP
-Display the program version.
+Display the program version. Without \fB\-\-server\-side\fP option the client's version is
+displayed. With \-\-server\-side option \- the server's regd version is displayed.
 
 .SS Starting, stopping, checking a server
-.SS \-\-start
+.SS start
 .PP
-Start \fBregd\fP. This command can be used with command line options: \fB\-\-host\fP, \fB\-\-port\fP, \fB\-\-user\fP, \fB\-\-log\-level\fP (see below). To start \fBregd\fP on an Internet address, the command line options \fB\-\-host\fP and \fB\-\-port\fP must contain the host name and port number of that address. If "\-\-host" and "\-\-port" are not specified, \fBregd\fP will run on a Unix file socket as a local daemon.
+Start \fBregd\fP. This command can be used with options: \fB\-\-host\fP, \fB\-\-port\fP, \fB\-\-server\-name\fP, \fB\-\-access\fP, \fB\-\-datafile\fP, \fB\-\-log\-level\fP (see below). To start \fBregd\fP on an Internet address, the command line options \fB\-\-host\fP and \fB\-\-port\fP must contain the host name and port number of that address. If "\-\-host" and "\-\-port" are not specified, \fBregd\fP will run on a Unix file socket as a local daemon.
 
-.SS \-\-stop
+.SS stop
 .PP
 Stop \fBregd\fP. All session tokens are discarded.
 
-.SS \-\-restart
+.SS restart
 .PP
 Restart \fBregd\fP. All session tokens are discarded.
 
-.SS \-\-check
+.SS check
 .PP
-Check if the \fBregd\fP is running.
+Output the uptime of the running \fB\-\-regd\fP server.
 
 .SS Adding tokens to the server
-.SS \-\-add <\fIname=value\fP>
+.SS add [ TOKEN2]... [\-\-pers][\-\-force|\-f]
 .PP
-Add a session token. If a token with such name already exists, the token value is not updated.
+Add a token to server. Without \fB\-\-pers\fP option the token is added as a session token. With \-\-pers option the token is added as a persistent token. If a token with such storage type, section path and name already exists, the option \fB\-\-force\fP causes the existing token's value to be replaced with the new value. If the token contains whitespace characters, it must be included in quotes. Multiple space separated tokens can be specified in the command parameter.
 
-.SS \-\-set <\fIname=value\fP>
+.SS cp   [\-\-pers][\-\-force|\-f][\-\-server\-side]
 .PP
-Add a session token. If a token with such name already exists, the token value is updated.
+Copy data between a disk file and a token.  and  are two required parameters specifying data location addresses of the data source and data destination. One of the location addresses must be a filesystem file name and other \- a token name on a \fBregd\fP server. The file name must be the absolute path name of a file, the token name is a section path name of a token, which in this command must be prepended with a
+colon:
 
-.SS \-\-add\-pers <\fIname=value\fP>
 .PP
-Same as \fB\-\-add\fP, but the token is added to the persistent tokens.
-
-.SS \-\-set\-pers <\fIname=value\fP>
-.PP
-Same as \fB\-\-set\fP, but the token is added to the persistent tokens.
-
-.SS \-\-load <\fIname1=value1\fP>[\fIname2=value2\fP...]
-.PP
-Add multiple session tokens. Each name/value pair must be separated from the previous one with the token separator. The default token separator is a three\-character sequence: \fI@#$\fP . With this default separator multiple tokens are specified like this:
+cp /home/alice/file1 :data/file1
 .br
-"name1=value1@#$name2=value2"
-.br
-The value of the token separator can be customized in \fIregd.conf\fP file.
+cp :data/file1 /home/alice/file1
 
-.SS \-\-load\-pers <\fIname1=value1\fP>[\fIname2=value2\fP...]
 .PP
-Same as \fB\-\-load\fP, but adds persistent tokens, rather
-than session ones.
+The \fB\-\-server\-side\fP option determines whether the file must be read by the client or
+by the server. (If both are on the same machine and started on the same user account,
+this option does nothing.)
 
-.SS \-\-load\-file <\fIfilename\fP>
 .PP
-Add session tokens from a file. \fIfilename\fP \- the path
-of the file with tokens. The file must contain "name=value"
-pairs with one pair per line.
+If the data source is a file, the command copies the file contents to the \fBregd\fP server as the destination token's value. With \fB\-\-server\-side\fP option the file is opened and read by the Server on server's machine, Without \-\-server\-side option the file
+is opened and read by the Client on client's machine and sent to the server.
 
-.SS \-\-load\-file\-pers <\fIfilename\fP>
 .PP
-Same as \fB\-\-load\-file\fP, but adds persistent tokens, rather
-than session ones.
+If the data source is a token, its content is written to the destination file. In this
+case the \-\-server\-side option should not be specified or command will fail. The file
+is always written on the client's machine.
 
-.SS \-\-load\-file\-sec [\fIfilename\fP]
+.SS load\-file <\fIfilename\fP>
+.PP
+Add tokens to server from a text file. \fIfilename\fP \- the path of the file with tokens.
+The file must contain tokens as  pairs grouped under section paths in square brackets:
+
+.PP
+[section1/section2]
+name1 = value1
+name2 = value2
+
+.PP
+[section1/section3]
+name3 = value3
+name4 = value4
+
+.PP
+Section names, when not at the first line of the file, must be preceded by an empty line. Square brackets surrounding the section name must be the first and the last character on the line. Section names can include the same characters as tokens (any character except of null character, slash ('/') and cannot consists of a single dot).
+
+.PP
+A single token can span several lines, in which case all lines beginning from the second one must start with either a single tab or with a single space character (all tabs and spaces beyond the first one are considered a part of the token).
+
+.PP
+All tokens in the file are added to a single storage type: as session tokens by default, or as persistent tokens if the \fB\-\-pers\fP option is specified.
+
+.SS load\-file\-sec [\fIfilename\fP]
 .PP
 Add secure tokens from an encrypted file. \fIfilename\fP \- the
 path of the file with secure tokens. \fIfilename\fP can be
@@ -381,85 +452,66 @@ For this default command could be used, \fIgpg\fP, \fIgpg\-agent\fP
 and \fIpinentry\fP programs needs to be installed and run on the
 computer. With this command, when the first command during a
 program session for getting a value of a secure token
-('\-\-get\-sec') is received, a \fIpinentry\fP dialog window is
+('get\-sec') is received, a \fIpinentry\fP dialog window is
 shown to the user, prompting for entering the password.
-If the password is correct, \fIgpg\fP program then reads the
+If the entered password is correct, \fIgpg\fP program then reads the
 contents of the encrypted file and pipes the file text to
 the \fBregd\fP, where it's kept in RAM.
 With this procedure the decrypted file contents are never written
-toa disk and always remain in RAM.
+to a disk and always remain in RAM.
 
 .PP
 The command for reading encrypted files can be changed and
-specified in the \fIregd.conf\fP.
+specified in \fIregd.conf\fP.
 
 .SS Getting tokens from the server
-.SS \-\-get <\fIname\fP>
+.SS get <\fITOKENPATH\fP>
 .PP
-Get the value of a session token.
+Get the value of a session token. Token path must consist of section path and token
+name. For persistent tokens \fB\-\-pers\fP option must be specified in the query.
 
-.SS \-\-get\-pers <\fIname\fP>
-.PP
-Get the value of a persistent token.
-
-.SS \-\-get\-sec <\fIname\fP>
+.SS get\-sec <\fIname\fP>
 .PP
 Get the value of a secure token.
 
-.SS Removing tokens from the server
-.SS \-\-remove <\fIname\fP>
+.SS Removing tokens from the server.
+.SS remove <\fIname\fP>
 .PP
-Remove a session token
+Remove a token.
 
-.SS \-\-remove\-pers <\fIname\fP>
-.PP
-Remove a persistent token
-
-.SS \-\-remove\-sec <\fIname\fP>
+.SS remove\-sec <\fIname\fP>
 .PP
 Remove a secure token.
 
-.SS \-\-remove\-section <\fIsection\fP>
+.SS remove\-section <\fIsection\fP>
 .PP
-Remove a section in session tokens.
+Remove a section.
 
-.SS \-\-remove\-section\-pers <\fIsection\fP>
-.PP
-Remove a section in persistent tokens.
-
-.SS \-\-remove\-section\-sec <\fIsection\fP>
+.SS remove\-section\-sec <\fIsection\fP>
 .PP
 Remove a section in secure tokens.
 
-.SS \-\-clear\-session
+.SS clear\-session
 .PP
 Remove all session and secure tokens.
 
-.SS \-\-clear\-sec
+.SS clear\-sec
 .PP
 Remove all secure tokens.
 
 .SS Listing tokens
-.SS \-\-list\-all
+.SS ls [\fISECTION\fP] [\fI\-\-pers\fP] [\fI\-\-tree\fP] [\fI\-\-novals\fP]
 .PP
 Print all the session tokens and persistent tokens. (Secure tokens are not listed.)
 
-.SS \-\-list\-session [\fIsection1\fP[ \fIsection2\fP...]]
-.PP
-Print the specified sections of session tokens or all sections if sections are not specified.
-
-.SS \-\-list\-pers [\fIsection1\fP[ \fIsection2\fP...]]
-.PP
-Print the specified sections of persistent tokens or all sections if sections are not specified.
-
 .SS Information commands
-.SS \-\-report\-stat
+.SS report\-stat
 .PP
 Display some statistics about this server.
 
-.SS \-\-show\-log 
+.SS show\-log [N]
 .PP
-Display the last N lines of the \fIregd\fP log file if the log file is specified in \fIregd.conf\fP.
+Display the last N (default: 10) lines of the \fIregd\fP log file if the log file is specified in \fIregd.conf\fP.
 
 .SH COMMAND LINE OPTIONS
 .PP
@@ -561,10 +613,15 @@ is started using the default file name in the directory specified in \fIdatadir\
 \fIregd.conf\fP. If \fI\-\-datafile\fP option has the value \fINone\fP, then persistent tokens will not
 be supported by the server instance: all commands relating to persistent tokens will fail.
 
+.SS \-\-auto\-start
+.PP
+If this option is present, then before executing the command, \fBregd\fP will check if the
+server is running at the specified address, and will try to start it if it's not running.
+
 .SH CONFIGURATION FILE
 .PP
 The configuration file \fIregd.conf\fP is read on the program
-startup. Options in \fIregd.conf\fP residing in \fI/etc/regd/\fP
+startup. Options in \fIregd.conf\fP residing in \fI/etc/regd/\fP directory
 are system\-wide ( applied for all users using \fBregd\fP ). The
 system\-wide options can be overriden in a user\-level
 \fIregd.conf\fP located in \fI\~/.config/regd/\fP directory.
@@ -574,41 +631,77 @@ Options that can be set in \fIregd.conf\fP are described in
 \fI/etc/regd/conf.regd\fP file.
 
 .SH NOTES
+.SS Token naming rules
 .PP
-If a token contains any of the following three characters: '\\', ':' or '=',
-then certain rules must be observed because colon in \fIregd\fP is used as the
-section name separator, equals sign is used as the name/value separator and
-backslash is a special system character.
+Similarly to filesystem files and directories names, where not all characters
+and names are allowed in file pathnames, certain rules exist for token and section
+names in \fBregd\fP.
 
 .PP
-1) If the section contains ':' characters, each of these characters must be
-prepended with '\\' (backslash) character (prepending a character with backslash
-is called 'escaping' character).
+\fI"Separator"\fP in \fBregd\fP is a symbol which separates individual token parts in a token: section names in the section path, token name and the token value.
+There are two separators in \fBregd\fP:
 
 .PP
-2) If the name contains '=' characters, each of these characters
-must be escaped.
+1) \fI"Name separator"\fP \- slash ('/'), which separates individual
+section names in the section path as well as the token name.
 
 .PP
-3) If a token (the section or name or value ) contain backslashes, they
-must be prepended with another backslash.
+2) \fI"Value separator"\fP \- equals sign ('='), which separates the token name from the token value in token adding commands.
 
 .PP
-4) If the section or name ends with backslash, then the separator (colon or equals
-sign) that follows after it, must be prepended with space.
+The rules to observe in section and token names are:
+.IP \(bu 2
+
+\item 
+.PP
+Section and token names cannot consist of a single dot ('.') or the "null
+character" ('').
+\item 
+.PP
+Section and token names cannot include the name separator ('/' symbol).
+\item 
+.PP
+If a \fItoken name\fP contains the value separator ('=' symbol), each of these '='
+symbols must be prepended with '\\' (backslash) character (prepending a symbol
+with backslash is called 'escaping' a symbol). Value separators in \fIsection names\fP
+need not be escaped.
+\item 
+.PP
+If any token part (the section name or token name or token value ) contains
+backslashes, they must be prepended with another backslash.
+\item 
+.PP
+If the section name ends with backslash (for example, it contains a Windows folder
+name: "C:\\TEMP\\"), the name separator that follows after it must be prepended with a
+single whitespace.
+\item 
+.PP
+If the token name ends with backslash, then the value separator ('=') that follows
+after it, must be prepended with a single whitespace.
+\item 
+.PP
+The one whitespace character before and after the name separator or the value
+separator is not considered a part of the token pathname and can be added for readability.
+.PP
+EXAMPLE:
 
 .PP
-E.g., if a token has a section "C:\\", name "TEMP\\a=b.txt" and value "D:\\temp\\a=b.txt",
-then when adding this token to \fIregd\fP in the "section:name=value" form,
-it must be modified as follows:
+If a token has the section name "C:\\", the token name "TEMP\\a=b" and
+the token value "D:\\temp\\a=b", then, when adding this token to \fBregd\fP
+it must be represented as follows (under the each inserted character there is the
+rule number according to which this character was added):
 
 .PP
-regd \-\-add "C:\\ :TEMP\\a\\=b.txt = D:\\temp\\a=b.txt"
+regd add "C:\\ /TEMP\\a\\=b = D:\\temp\\a=b"
+            4 5     4  3  7 7  4     4
 
 .PP
-That is, colons must be escaped only in sections, equals signs must be escaped only in
-names, and backslashes must be escaped everywhere. And if a section or name ends with
-backslash, it must be followed by space.
+(This representation doesn't change the actual characters the token consists of.)
+
+.PP
+That is, value separators ('=') must be escaped only in token names (not section names
+or token values), backslashes must be escaped everywhere, if a section or name ends with
+backslash, it must be followed by whitespace, and one whitespace before and after any separator is not included in the section or token names or in the value.
 
 .SH AUTHOR
 .PP

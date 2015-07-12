@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-11 07:02:29"
+__lastedited__ = "2015-07-12 04:52:15"
 
 import sys, os, socket, subprocess, logging, argparse, time
 import regd.util as util
@@ -165,11 +165,12 @@ def main(*kwargs):
 			cmdoptions.append( ( self.dest[:], None ) )
 
 	parser = argparse.ArgumentParser( 
-		description = 'regd : Registry server.'
+		description = 'regd : Data cache server.'
 	)
 	
 	parser.add_argument( 'cmd', choices=[clc(x) for x in defs.all_cmds], help = 'Regd command' )
 	parser.add_argument( 'params', nargs="*", help = 'Command parameters' )
+	
 	# Regd options
 	parser.add_argument( '--log-level', default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
 	parser.add_argument( '--log-topics', help = 'For debugging purposes.' )
@@ -180,43 +181,7 @@ def main(*kwargs):
 	parser.add_argument( '--datafile', help = 'File for reading and storing persistent tokens.' )
 	parser.add_argument( '--no-verbose', action='store_true', help = 'Only output return code numbers.' )
 	parser.add_argument( '--auto-start', action='store_true', help = 'If regd server is not running, start it before executing the command.' )
-	# Commands
-	'''
-	group = parser.add_mutually_exclusive_group()
-	group.add_argument( '--version', action='store_true', help = 'Print regd version.' )
-	group.add_argument( clp(START_SERVER), action = "store_true", help = 'Start server' )
-	group.add_argument( clp(STOP_SERVER), action = "store_true", help = 'Stop server' )
-	group.add_argument( clp(RESTART_SERVER), action = "store_true", help = 'Restart server' )
-	group.add_argument( clp(CHECK_SERVER), nargs = 0, action = ActionCmd, help = 'Ping server' )
-	group.add_argument( clp(REPORT), nargs = 0, action = Item, choices = rep_opts, help = 'Report the specified server\'s info.' )
-	group.add_argument( clp(SHOW_LOG), metavar="N", nargs='?', const='10', help = 'Show the last N lines of the log file (if log is enabled).' )
-	group.add_argument( clp(ADD_TOKEN), action = Item, metavar = "TOKEN", help = 'Add a token' )
-	group.add_argument( clp(SET_TOKEN), action = Item, metavar = "TOKEN", help = 'Set a token' )
-	group.add_argument( clp(ADD_TOKEN_PERS), action = Item, metavar = "TOKEN", help = 'Add a persistent token' )
-	group.add_argument( clp(SET_TOKEN_PERS), action = Item, metavar = "TOKEN", help = 'Set a persistent token' )
-	group.add_argument( clp(ADD_TOKEN_SEC), action = Item, metavar = "TOKEN", help = 'Add a secure token' )
-	group.add_argument( clp(LOAD_TOKENS), action = Item, metavar = "TOKENS", help = 'Add tokens' )
-	group.add_argument( clp(LOAD_TOKENS_PERS), action = Item, metavar = "TOKENS", help = 'Add persistent tokens' )
-	group.add_argument( clp(GET_TOKEN), action = Item, metavar = "NAME", help = 'Get a token' )
-	group.add_argument( clp(GET_TOKEN_PERS), action = Item, metavar = "NAME", help = 'Get a persistent token' )
-	group.add_argument( clp(GET_TOKEN_SEC), action = Item, metavar = "NAME", help = 'Get a secure token' )
-	group.add_argument( clp(LIST), action = Item, nargs = 0, help = 'List session and persistent tokens' )
-	group.add_argument( clp(LOAD_FILE), action = Item, metavar = "FILENAME", help = 'Load tokens from a file' )
-	group.add_argument( clp(LOAD_FILE_PERS), action = Item, metavar = "FILENAME", help = 'Add persistent tokens from a file' )
-	group.add_argument( clp(LOAD_FILE_SEC), action = Item, metavar = "FILENAME", nargs = '?', help = 'Load tokens from encrypted file' )
-	group.add_argument( clp(REMOVE_TOKEN), action = Item, metavar = "NAME", help = 'Remove a token' )
-	group.add_argument( clp(REMOVE_TOKEN_PERS), action = Item, metavar = "NAME", help = 'Remove a persistent token' )
-	group.add_argument( clp(REMOVE_TOKEN_SEC), action = Item, metavar = "NAME", help = 'Remove a secure token' )
-	group.add_argument( clp(REMOVE_SECTION), action = Item, metavar = "SECTION", help = 'Remove a section' )
-	group.add_argument( clp(REMOVE_SECTION_PERS), action = Item, metavar = "SECTION", help = 'Remove a persistent section' )
-	group.add_argument( clp(REMOVE_SECTION_SEC), action = Item, metavar = "SECTION", help = 'Remove a secure section' )
-	group.add_argument( clp(CLEAR_SEC), action = ActionCmd, help = 'Remove all secure tokens' )
-	group.add_argument( clp(CLEAR_SESSION), action = ActionCmd, help = 'Remove all session and secure tokens' )
-	group.add_argument( clp(TEST_START), action = 'store_true', help = 'Start test' )
-	group.add_argument( clp(TEST_CONFIGURE), action='store_true', help = 'Configure test' )
-	group.add_argument( clp(TEST_MULTIUSER_BEGIN), action='store_true', help = 'Start regd server on this account for multiuser test.' )
-	group.add_argument( clp(TEST_MULTIUSER_END), action='store_true', help = 'End multiuser test' )
-	'''
+
 	# Command options
 	parser.add_argument( clp( DEST ), action = CmdParam, help = "The name of the section into which tokens must be added.")
 	parser.add_argument( clp( TREE ), action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format.")
@@ -441,21 +406,51 @@ def main(*kwargs):
 			args.params = files
 			cmdoptions.append((FROM_PARS, None))
 			
+		elif cmd == COPY_FILE:
+			if len( args.params ) != 2 or \
+				len( args.params[0]) == 0 or len( args.params[1]) == 0:
+				print("'cp' command requires two parameters.")
+				return 1
+			src = args.params[0]
+			dst = args.params[1]
+			writeFile = None
+			if src[0] == ':':
+				if args.server_side:
+					print("Destination file cannot be on server side.")
+					return 1
+				else:
+					writeFile = dst
+			if dst[0] == ':' and not args.server_side:
+				if not os.path.exists(src):
+					print("File not found: ", src)
+					return 1
+				with open(src) as f:
+					args.params[0] = f.read()
+				
+				cmdoptions.append((FROM_PARS, None))			
+			
 		util.removeOptions(cmdoptions, SERVER_SIDE)
 		
 		if not cmdoptions:
 			cmdoptions = None
 				
 		res = Client( (cmd, args.params ), cmdoptions, _sockfile, host, port )
+		
+		# Postprocessing
+		
 		if res[0] != '1':
 			if args.cmd.startswith( "get" ):
 				print( "0", res )
-			elif res[0] == '0' :
-				log.error( "Cannot contact server." )
-			else:
-				log.error( res[1:] )
-			log.debug( res )
+			log.error( res[1:] )
 			return -1
+		if cmd == COPY_FILE:
+			if writeFile:
+				try:
+					with open(writeFile, "w") as f:
+						f.write(res[1:])
+				except:
+					print("0Error: Failed storing query result to file '{0}'".format(writeFile))
+					return -1
 		print( res )
 		
 	# Local commands

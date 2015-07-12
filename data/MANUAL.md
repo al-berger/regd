@@ -2,11 +2,11 @@
 
 ## NAME
 
-regd - Registry daemon.
+regd - Data cache server.
 
 ## SYNOPSIS
 
-regd <*COMMAND*> [*ARGUMENTS*]
+regd <*COMMAND*> [*PARAMETERS*] [*OPTION* [*OPTION_VALUE*]]...
 
 ## DESCRIPTION
 
@@ -316,6 +316,24 @@ Output the uptime of the running __--regd__ server.
 ### add <TOKEN1>[ TOKEN2]... [--pers][--force|-f]
 Add a token to server. Without __--pers__ option the token is added as a session token. With --pers option the token is added as a persistent token. If a token with such storage type, section path and name already exists, the option __--force__ causes the existing token's value to be replaced with the new value. If the token contains whitespace characters, it must be included in quotes. Multiple space separated tokens can be specified in the command parameter.
 
+### cp <SOURCE> <DEST> [--pers][--force|-f][--server-side]
+Copy data between a disk file and a token. <SOURCE> and <DEST> are two required parameters specifying data location addresses of the data source and data destination. One of the location addresses must be a filesystem file name and other - a token name on a __regd__ server. The file name must be the absolute path name of a file, the token name is a section path name of a token, which in this command must be prepended with a 
+colon:
+
+cp /home/alice/file1 :data/file1  
+cp :data/file1 /home/alice/file1 
+
+The __--server-side__ option determines whether the file must be read by the client or
+by the server. (If both are on the same machine and started on the same user account,
+this option does nothing.)
+
+If the data source is a file, the command copies the file contents to the __regd__ server as the destination token's value. With __--server-side__ option the file is opened and read by the Server on server's machine, Without --server-side option the file
+is opened and read by the Client on client's machine and sent to the server.
+
+If the data source is a token, its content is written to the destination file. In this
+case the --server-side option should not be specified or command will fail. The file
+is always written on the client's machine.
+
 ### load-file <_filename_>
 Add tokens to server from a text file. _filename_ - the path of the file with tokens. 
 The file must contain tokens as <name = value> pairs grouped under section paths in square brackets:
@@ -370,10 +388,10 @@ name. For persistent tokens __--pers__ option must be specified in the query.
 ### get-sec <_name_>
 Get the value of a secure token.
 
-### Removing tokens from the server  
+### Removing tokens from the server.  
 
 ### remove <_name_>
-Remove a token 
+Remove a token. 
 
 ### remove-sec <_name_>
 Remove a secure token.
@@ -381,13 +399,13 @@ Remove a secure token.
 ### remove-section <_section_>
 Remove a section.
 
-### --remove-section-sec <_section_>
+### remove-section-sec <_section_>
 Remove a section in secure tokens.
 
-### --clear-session
+### clear-session
 Remove all session and secure tokens.
 
-### --clear-sec
+### clear-sec
 Remove all secure tokens.
 
 ### Listing tokens  
@@ -395,19 +413,13 @@ Remove all secure tokens.
 ### ls [_SECTION_] [_--pers_] [_--tree_] [_--novals_]
 Print all the session tokens and persistent tokens. (Secure tokens are not listed.)
 
-### --list-session [_section1_[ _section2_...]]
-Print the specified sections of session tokens or all sections if sections are not specified.
-
-### --list-pers [_section1_[ _section2_...]]
-Print the specified sections of persistent tokens or all sections if sections are not specified.
-
 ### Information commands
 
-### --report-stat
+### report-stat
 Display some statistics about this server.
 
-### --show-log <N>
-Display the last N lines of the _regd_ log file if the log file is specified in _regd.conf_.
+### show-log [N]
+Display the last N (default: 10) lines of the _regd_ log file if the log file is specified in _regd.conf_.
 
 
 ## COMMAND LINE OPTIONS
@@ -496,7 +508,7 @@ server is running at the specified address, and will try to start it if it's not
 ## CONFIGURATION FILE
 
 The configuration file _regd.conf_ is read on the program 
-startup. Options in _regd.conf_ residing in _/etc/regd/_ 
+startup. Options in _regd.conf_ residing in _/etc/regd/_ directory 
 are system-wide ( applied for all users using __regd__ ). The
 system-wide options can be overriden in a user-level 
 _regd.conf_ located in _~/.config/regd/_ directory.
@@ -506,34 +518,60 @@ _/etc/regd/conf.regd_ file.
 
 ## NOTES
 
-If a token contains any of the following three characters: '\', ':' or '=',
-then certain rules must be observed because colon in _regd_ is used as the
-section name separator, equals sign is used as the name/value separator and
-backslash is a special system character.
+### Token naming rules
 
-1) If the section contains ':' characters, each of these characters must be 
-prepended with '\' (backslash) character (prepending a character with backslash
-is called 'escaping' character).
+Similarly to filesystem files and directories names, where not all characters
+and names are allowed in file pathnames, certain rules exist for token and section 
+names in __regd__.
 
-2) If the name contains '=' characters, each of these characters
-must be escaped.
+_"Separator"_ in __regd__ is a symbol which separates individual token parts in a token: section names in the section path, token name and the token value. 
+There are two separators in __regd__: 
 
-3) If a token (the section or name or value ) contain backslashes, they 
-must be prepended with another backslash.
+1) _"Name separator"_ - slash ('/'), which separates individual
+section names in the section path as well as the token name.
 
-4) If the section or name ends with backslash, then the separator (colon or equals
-sign) that follows after it, must be prepended with space.
+2) _"Value separator"_ - equals sign ('='), which separates the token name from the token value in token adding commands.
 
-E.g., if a token has a section "C:\", name "TEMP\a=b.txt" and value "D:\temp\a=b.txt", 
-then when adding this token to _regd_ in the "section:name=value" form,
-it must be modified as follows:
+The rules to observe in section and token names are:
 
-regd --add "C\:\\ :TEMP\\a\=b.txt = D:\\temp\\a=b.txt"
+1. Section and token names cannot consist of a single dot ('.') or the "null 
+character" ('').
 
-That is, colons must be escaped only in sections, equals signs must be escaped only in
-names, and backslashes must be escaped everywhere. And if a section or name ends with
-backslash, it must be followed by space.
+2. Section and token names cannot include the name separator ('/' symbol).
 
+3. If a _token name_ contains the value separator ('=' symbol), each of these '=' 
+symbols must be prepended with '\' (backslash) character (prepending a symbol 
+with backslash is called 'escaping' a symbol). Value separators in _section names_
+need not be escaped.
+
+4. If any token part (the section name or token name or token value ) contains 
+backslashes, they must be prepended with another backslash.
+
+5. If the section name ends with backslash (for example, it contains a Windows folder
+name: "C:\TEMP\"), the name separator that follows after it must be prepended with a 
+single whitespace.
+
+6. If the token name ends with backslash, then the value separator ('=') that follows 
+after it, must be prepended with a single whitespace.
+
+7. The one whitespace character before and after the name separator or the value 
+separator is not considered a part of the token pathname and can be added for readability.
+
+EXAMPLE:  
+
+If a token has the section name "C:\", the token name "TEMP\a=b" and 
+the token value "D:\temp\a=b", then, when adding this token to __regd__ 
+it must be represented as follows (under the each inserted character there is the 
+rule number according to which this character was added):
+
+regd add "C:\\ /TEMP\\a\=b = D:\\temp\\a=b"
+            4 5     4  3  7 7  4     4
+            
+(This representation doesn't change the actual characters the token consists of.)
+            
+That is, value separators ('=') must be escaped only in token names (not section names
+or token values), backslashes must be escaped everywhere, if a section or name ends with
+backslash, it must be followed by whitespace, and one whitespace before and after any separator is not included in the section or token names or in the value.
 
 
 ## AUTHOR

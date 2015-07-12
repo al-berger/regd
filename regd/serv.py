@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-11 06:52:48"
+__lastedited__="2015-07-12 05:40:15"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
 import ipaddress
@@ -337,9 +337,10 @@ class RegdServer:
 						raise ISException(valueNotExists, fpar, "Section doesn't exist.")
 					resp = "1"+"\n".join(lres)
 					
-				elif cmd in (ADD_TOKEN, LOAD_FILE):
+				elif cmd in (ADD_TOKEN, LOAD_FILE, COPY_FILE):
 					dest = None
 					noOverwrite = True
+					pers = False
 					if not fpar:
 						raise ISException(unrecognizedSyntax, moreInfo="No items specified.")
 					for op in cmdOptions:
@@ -355,6 +356,7 @@ class RegdServer:
 									moreInfo="{0} and {1} cannot be both specified for one command.".format(
 																					DEST, PERS))
 							dest = stor.PERSPATH
+							pers = True
 						
 						if op[0] == FORCE:
 							noOverwrite = False
@@ -394,6 +396,29 @@ class RegdServer:
 								stor.read_tokens_from_lines( file.split('\n'), stok, noOverwrite)
 							
 						resp = "1"
+						
+					elif cmd == COPY_FILE:
+						frompars = util.getSwitches( cmdOptions, FROM_PARS )[0]
+						src = cmdData[0]
+						dst = cmdData[1]
+						ret = None
+						if dst[0] == ':': # cp from file to token
+							if frompars:
+								val = src
+							else:
+								with open(src) as f:
+									val = f.read()
+							tok = dst[1:] + " =" + val 
+							self.fs.addTokenToDest(dest, tok, noOverwrite )
+							ret = ""
+						elif src[0] == ':': # cp from token to file
+							src = src[1:]
+							if not self.fs.isPathValid( src ):
+								src = "{0}/{1}".format(stor.PERSPATH if pers else stor.SESPATH, fpar)
+							
+							ret = self.fs.getToken(src)
+							
+						resp = "1" + ret
 				
 				elif cmd in ( GET_TOKEN, REMOVE_TOKEN, REMOVE_SECTION):
 					pers = util.getSwitches( cmdOptions, PERS)[0]

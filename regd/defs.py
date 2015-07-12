@@ -10,9 +10,9 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-11 20:25:28"
+__lastedited__="2015-07-12 05:05:48"
 
-VERSION = ( 0, 6, 'pre0', 17 )
+VERSION = ( 0, 6, 'pre0', 18 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -43,6 +43,7 @@ REPORT				= "what"
 LIST				= "ls"
 ADD_TOKEN 			= "add"
 ADD_TOKEN_SEC		= "add_sec"
+COPY_FILE			= "cp"
 LOAD_FILE 			= "load_file"
 LOAD_FILE_SEC 		= "load_file_sec"
 GET_TOKEN 			= "get"
@@ -79,8 +80,8 @@ VERS
 
 # Command groups
 all_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, CHECK_SERVER, REPORT,
-			LIST, ADD_TOKEN, ADD_TOKEN_SEC, LOAD_FILE, LOAD_FILE_SEC, GET_TOKEN, GET_TOKEN_SEC,
-			REMOVE_TOKEN, REMOVE_TOKEN_SEC, REMOVE_SECTION,
+			LIST, ADD_TOKEN, ADD_TOKEN_SEC, LOAD_FILE, LOAD_FILE_SEC, COPY_FILE, GET_TOKEN, 
+			GET_TOKEN_SEC, REMOVE_TOKEN, REMOVE_TOKEN_SEC, REMOVE_SECTION,
 			REMOVE_SECTION_SEC, CLEAR_SEC, CLEAR_SESSION, TEST_START, TEST_CONFIGURE,
 			TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END, VERS, HELP)
 pubread_cmds = ( CHECK_SERVER, LIST, GET_TOKEN )
