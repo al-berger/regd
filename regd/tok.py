@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-11 01:00:32"
+__lastedited__="2015-07-12 19:20:22"
 
 from regd.util import logtok, ISException, unknownDataFormat
 import regd.util as util

@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-12 04:52:15"
+__lastedited__ = "2015-07-13 20:27:48"
 
 import sys, os, socket, subprocess, logging, argparse, time
 import regd.util as util
@@ -87,23 +87,23 @@ def checkConnection(sockfile=None, host=None, port=None):
 		sock = connectToServer(sockfile, host, port, 3)
 	except ISException:
 		return False
+	res = Client((defs.CHECK_SERVER, None), None, sockfile, host, port )
 	
 	sock.shutdown( socket.SHUT_RDWR )
 	sock.close()
-	return True
+	return (res[0] == '1')
 	
 def Client( cmd, opt, sockfile=None, host=None, port=None ):
 	'''
 	"Client" function. Performs requests to a running server.
 	'''
-	log.debug("cmd={0}; opt={1}; sock={2}; host={3}; port={4}".format( 
+	util.log.debug("cmd={0}; opt={1}; sock={2}; host={3}; port={4}".format( 
 									cmd, opt, sockfile, host, port ))
 	
 	tmout = 3
 	if cmd[0].find( "_sec " ) != -1 or cmd[0].endswith( "_sec" ):
 		tmout = 30
 
-	
 	try:
 		data = bytearray()
 		bpack = bytearray()
@@ -115,7 +115,7 @@ def Client( cmd, opt, sockfile=None, host=None, port=None ):
 			util.sendPack(sock, bpack)
 			util.recvPack(sock, data)
 		except ISException as e:
-			return str(e)
+			return "0" + str(e)
 			
 		util.logcomm.debug("received packet: {0}".format(data))
 
@@ -266,7 +266,7 @@ def main(*kwargs):
 	
 	if args.auto_start:
 		if not checkConnection(_sockfile, host, port):
-			opts=[__file__, "--start"]
+			opts=[__file__, defs.START_SERVER]
 			if host: 
 				opts.append("--host");
 				opts.append(host)
@@ -392,7 +392,7 @@ def main(*kwargs):
 
 		return serv.Server( servername, _sockfile, host, port, int(resAcc[1]), resDf[1] )
 		
-	elif cmd not in defs.local_cmds or ( cmd in defs.nonlocal_cmds and args.server_side ):
+	elif cmd not in defs.local_cmds and not ( cmd in defs.nonlocal_cmds and not args.server_side ):
 		
 		if cmd == LOAD_FILE and not args.server_side:
 			files = []	
@@ -441,7 +441,7 @@ def main(*kwargs):
 		if res[0] != '1':
 			if args.cmd.startswith( "get" ):
 				print( "0", res )
-			log.error( res[1:] )
+			log.error( res )
 			return -1
 		if cmd == COPY_FILE:
 			if writeFile:

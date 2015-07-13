@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-12 05:40:15"
+__lastedited__="2015-07-13 04:15:23"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
 import ipaddress
@@ -19,7 +19,7 @@ import regd.util as util, regd.defs as defs
 from regd.util import log, ISException, permissionDenied, persistentNotEnabled, valueNotExists,\
 	operationFailed, sigHandler, unrecognizedParameter,\
 	unrecognizedSyntax
-from regd.stor import read_locked, list_tokens, write_locked, get_token,\
+from regd.stor import EnumMode, read_locked, write_locked, get_token,\
 	read_sec_file, remove_section, remove_token, getstor
 import regd.stor as stor
 import __main__  # @UnresolvedImport
@@ -61,8 +61,6 @@ class RegdServer:
 		# Command line command for reading encrypted file
 		self.secTokCmd = defs.READ_ENCFILE_CMD
 		
-		self.itemsSep = defs.ITEMMARKER 
-		
 		# Trusted
 		self.trustedUserids = []
 		self.trustedIps = []
@@ -102,13 +100,11 @@ class RegdServer:
 			try:
 				self.data_fd = open( self.datafile, "r+", buffering=1 )
 				log.debug("Data file fileno: %i" % (self.data_fd.fileno()))
-				fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
+				#fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
 			except OSError as e:
-				print("Datafile has a lock on it (probably remaining after an abnormal exit",
-					 "of the previous program instance).")
-				#print("Error: data file \"{0}\" could not be opened: {1}".format(datafile, e.strerror), 
-				#"Probably it's already opened by another process. Server is not started.")
-				#raise ISException(operationFailed)
+				print("Error: data file \"{0}\" could not be opened: {1}".format(datafile, e.strerror), 
+				"Server is not started.")
+				raise ISException(operationFailed)
 		else:
 			print( "Server's data file is not specified. Persistent tokens are not enabled.")
 			
@@ -203,6 +199,7 @@ class RegdServer:
 			if not cont:
 				log.info("Server exiting.")
 				if self.data_fd:
+					log.info("Unlocking data file.")
 					fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
 				sys.exit( 0 )		
 		
@@ -505,13 +502,13 @@ class RegdServer:
 			return False
 		
 		return True
-		
+			
 	def prepareStat(self):
 		ret = ""
-		m = util.statReg( self.tokens )
+		m = self.statReg( self.tokens )
 		ret += ( "\nSession tokens:\n------------------------\n")
 		ret += util.printMap( m, 0 )
-		m = util.statReg( self.perstokens )
+		m = self.statReg( self.perstokens )
 		ret += ( "\nPersistent tokens:\n------------------------\n")
 		ret += util.printMap( m, 0 )
 		ret += ( "\nCommands:\n------------------------\n")

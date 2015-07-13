@@ -10,12 +10,14 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-11 00:56:12"
+__lastedited__="2015-07-13 05:24:55"
 
-import re, subprocess, tempfile, os
+import sys, re, subprocess, tempfile, os
+from enum import Enum
 from regd.util import log, logtok, ISException, unknownDataFormat, operationFailed, \
 	objectNotExists, valueAlreadyExists, valueNotExists, unrecognizedParameter
 from regd.tok import parse_token, stripOne
+from collections import deque, OrderedDict
 
 SECTIONPATT="^\[(.*)\]$"
 SECTIONNAMEPATT="^(.*?)(?<!\\\):(.*)"
@@ -29,17 +31,21 @@ SESPATH = "/" + SESNAME
 
 rootdirs = [SESPATH, PERSPATH]
 
-class Stor(dict):
+class EnumMode(Enum):
 	both		= 1
 	tokens		= 2
 	sections 	= 3
 	all 		= 4
 	tokensAll	= 5
 	sectionsAll	= 6
-	
+
+
+class Stor(dict):
+
 	def __init__(self, name=''):
 		self.name = name
 		self.path = ''
+		self.enumMode = None
 		return super(Stor, self).__init__( )
 		
 	def __getitem__( self, key ):
@@ -71,6 +77,49 @@ class Stor(dict):
 	def __contains__( self, key ):
 		return super(Stor, self).__contains__( key )
 	
+	class StorIter:
+		def __init__(self, stor, mode):
+			self.mode = mode
+			self.secdeq = deque()
+			self.it = iter( stor )
+			self.cd = stor # current dict
+			self.tp = type( stor ) # section type  
+			
+		def __next__(self):
+			while 1:
+				try:
+					item = next( self.it )
+				except StopIteration:
+					if len( self.secdeq ):
+						self.cd = self.secdeq.popleft()
+						self.it = iter( self.cd )
+						continue
+					else:
+						raise 
+					
+				if isinstance( self.cd[item], self.tp ):
+					if self.mode in (EnumMode.all, EnumMode.tokensAll, EnumMode.sectionsAll):
+						self.secdeq.append( self.cd[item] )
+					if self.mode in ( EnumMode.all, EnumMode.sections, EnumMode.sectionsAll ):
+						return None, self.cd[item].pathName() 
+				else:
+					return item, self.cd[item]
+			
+			
+	
+	def __iter__(self, *args, **kwargs):
+		if self.enumMode == None:
+			return dict.__iter__(self, *args, **kwargs)
+		em = self.enumMode
+		self.enumMode = None
+		it = Stor.StorIter(self, em)
+		
+		return it
+		
+	
+	def enumerate(self, mode):
+		self.enumMode = mode
+		
 	def setPath( self, path ):
 		self.path = path
 	
@@ -100,29 +149,30 @@ class Stor(dict):
 		
 		return True	
 	
-	def numItems(self, itemType=both):
+	def numItems(self, itemType=EnumMode.both):
 		cnt = None
-		if itemType == Stor.both:
+		if itemType == EnumMode.both:
 			cnt = len( self )
-		elif itemType in ( Stor.tokens, Stor.tokensAll ):
+		elif itemType in ( EnumMode.tokens, EnumMode.tokensAll ):
 			cnt = 0
 			for k in self.keys():
 				if type( self[k] ) != type(self):
 					cnt += 1
-				elif itemType == Stor.tokensAll:
-					cnt += self[k].numItems(Stor.tokensAll)
+				elif itemType == EnumMode.tokensAll:
+					cnt += self[k].numItems(EnumMode.tokensAll)
 					
-		elif itemType in ( Stor.sections, Stor.sectionsAll ):
+		elif itemType in ( EnumMode.sections, EnumMode.sectionsAll ):
 			cnt = 0
 			for k in self.keys():
 				if type( self[k] ) == type(self):
 					cnt += 1
-					if itemType == Stor.sectionsAll:
-						cnt += self[k].numItems(Stor.sectionsAll)
-		elif itemType == Stor.all:
-			cnt = self.tokensAll() + self.sectionsAll()
+					if itemType == EnumMode.sectionsAll:
+						cnt += self[k].numItems(EnumMode.sectionsAll)
+		elif itemType == EnumMode.all:
+			cnt = self.numItems(EnumMode.tokensAll) + self.numItems(EnumMode.sectionsAll)
 		else:
 			raise ISException()
+		return cnt
 		
 	def getSection( self, path ):
 		if path:
@@ -275,7 +325,8 @@ class Stor(dict):
 					if not pathPrinted:
 						res.append("")
 						if relPath:
-							res.append( "[" + relPath + "]")
+							if relPath != '.':
+								res.append( "[" + relPath + "]")
 						else:
 							res.append( "[" + self.pathName() + "]")
 						pathPrinted = True
@@ -297,12 +348,34 @@ class Stor(dict):
 				v.getTokensList( lres )
 			else:
 				lres.append( self.path + "/" + self.name + "/" + n + "=" + v )
-		
+	
+	@staticmethod
+	def statReg( stok ):
+		m=OrderedDict()
+		m['num_of_sections'] = stok.numItems( EnumMode.sectionsAll )
+		m['num_of_tokens'] = stok.numItems( EnumMode.tokensAll)
+		m['max_key_length'] = 0
+		m['max_value_length'] = 0
+		m['avg_key_length'] = 0
+		m['avg_value_length'] = 0
+		m['total_size_bytes'] = 0
+		stok.enumerate( EnumMode.tokensAll )
+		for nam, val in stok:
+			if len(nam) > m['max_key_length']:
+				m['max_key_length'] = len(nam)
+			if len(val) > m['max_value_length']:
+				m['max_value_length'] = len(val)
+			m['avg_key_length'] += len(nam)
+			m['avg_value_length'] += len(val)
+			m['total_size_bytes'] += sys.getsizeof(val) + sys.getsizeof(nam)
+			
+		if m['num_of_tokens']:
+			m['avg_key_length'] = round( m['avg_key_length'] / m['num_of_tokens'], 2)
+			m['avg_value_length'] = round( m['avg_value_length'] / m['num_of_tokens'], 2 )
+		return m
 		
 def getstor(name=''):
 	return Stor(name)
-
-
 
 def isPathPers(path):
 	if path.startswith( PERSPATH ):
