@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-10 17:11:24"
+__lastedited__="2015-07-13 04:15:08"
 
 import sys, os, pwd, logging, signal
 import configparser
@@ -65,8 +65,9 @@ unrecognizedSyntax	 = 22
 errStrings = ["Program error", "Operation successfull", "Unknown data format", "Value doesn't exist", "Value already exists",
 			"Operation failed", "Permission denied", 
 			"Persistent tokens are not enabled on this server", "Cannot connect to server",
-			"Client connection error", "Object doesn't exist", "Unrecognized parameter", 
-			"Unrecognized syntax"]
+			"Client connection error", 
+			'','','','','','','','','','',
+			"Object doesn't exist", "Unrecognized parameter", "Unrecognized syntax"]
 
 class SignalHandler:
 	def __init__(self):
@@ -205,31 +206,7 @@ def printMap( m, indent ):
 			ret += "{0:{width}} {1:20} : {2}\n".format("", k, v, width=(indent+1))
 			
 	return ret
-			
-def statReg(cp):
-	m={}
-	m['num_of_sections'] = len( list(cp.keys()) )
-	m['num_of_tokens'] = 0
-	m['max_key_length'] = 0
-	m['max_value_length'] = 0
-	m['avg_key_length'] = 0
-	m['avg_value_length'] = 0
-	m['total_size_bytes'] = 0
-	for sec in cp.values():
-		for nam, val in sec.items:
-			m['num_of_tokens'] += 1
-			if len(nam) > m['max_key_length']:
-				m['max_key_length'] = len(nam)
-			if len(val) > m['max_value_length']:
-				m['max_value_length'] = len(val)
-			m['avg_key_length'] += len(nam)
-			m['avg_value_length'] += len(val)
-			m['total_size_bytes'] += sys.getsizeof(val) + sys.getsizeof(nam)
-	if m['num_of_tokens']:
-		m['avg_key_length'] /= m['num_of_tokens']
-		m['avg_value_length'] /= m['num_of_tokens']
-	return m
-
+	
 def recvPack(sock, pack):
 	data = bytearray()
 	packlen = 0
