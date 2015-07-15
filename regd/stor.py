@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-13 05:24:55"
+__lastedited__="2015-07-15 07:49:54"
 
 import sys, re, subprocess, tempfile, os
 from enum import Enum
@@ -38,6 +38,11 @@ class EnumMode(Enum):
 	all 		= 4
 	tokensAll	= 5
 	sectionsAll	= 6
+	
+class SItem:
+	'''Storage item.'''
+	def __init__(self):
+	
 
 
 class Stor(dict):
