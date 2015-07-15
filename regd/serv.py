@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-13 04:15:23"
+__lastedited__="2015-07-14 06:30:51"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
 import ipaddress
@@ -159,8 +159,13 @@ class RegdServer:
 				if os.path.exists( self.sockfile ):
 					raise	
 				
-		log.info( "Starting server..." )
 		self.useruid = os.getuid()
+		if self.host:
+			log.info( "Starting regd server. useruid: {0} ; host: {1} ; port: {2}.".format( 
+															self.useruid, self.host, self.port )  )
+		else:
+			log.info( "Starting regd server. useruid: {0} ; sockfile: {1} ; servername: {2}.".format( 
+												self.useruid, self.sockfile, self.servername )  )
 		self.stat["general"]["time_started"] = str(datetime.datetime.now()).rpartition(".")[0] 
 		self.timestarted = datetime.datetime.now()
 		try:
@@ -208,9 +213,9 @@ class RegdServer:
 			creds = connection.getsockopt( socket.SOL_SOCKET, socket.SO_PEERCRED, 
 									struct.calcsize("3i"))
 			pid, uid, gid = struct.unpack("3i", creds)
-			log.info("new connection: pid: {0}; uid: {1}; gid: {2}".format( pid, uid, gid ) )
+			log.debug("new connection: pid: {0}; uid: {1}; gid: {2}".format( pid, uid, gid ) )
 		else:
-			log.info( "new connection: client address: %s" % ( str( client_address ) ) )
+			log.debug( "new connection: client address: %s" % ( str( client_address ) ) )
 
 		connection.settimeout( 3 )
 		
@@ -224,8 +229,8 @@ class RegdServer:
 		cmdData=[]
 		cmd = util.parsePacket(data, cmdOptions, cmdData)
 			
-		log.info( "command received: {0} {1}".format( cmd, cmdData ) )
-		log.info( "command options: {0}".format( cmdOptions ) )
+		log.debug( "command received: {0} {1}".format( cmd, cmdData ) )
+		log.debug( "command options: {0}".format( cmdOptions ) )
 
 		# Three response classes:
 		# 0 - program error
@@ -247,7 +252,7 @@ class RegdServer:
 					for i in self.trustedIps:
 						if clientIp in i:
 							perm = True
-							log.info("Client IP is trusted.")
+							log.debug("Client IP is trusted.")
 							break 
 					if not perm:
 						log.error("Client IP is NOT trusted : '%s : %s" % 
@@ -505,10 +510,10 @@ class RegdServer:
 			
 	def prepareStat(self):
 		ret = ""
-		m = self.statReg( self.tokens )
+		m = stor.Stor.statReg( self.tokens )
 		ret += ( "\nSession tokens:\n------------------------\n")
 		ret += util.printMap( m, 0 )
-		m = self.statReg( self.perstokens )
+		m = stor.Stor.statReg( self.perstokens )
 		ret += ( "\nPersistent tokens:\n------------------------\n")
 		ret += util.printMap( m, 0 )
 		ret += ( "\nCommands:\n------------------------\n")

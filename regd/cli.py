@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-13 20:27:48"
+__lastedited__ = "2015-07-15 05:19:04"
 
 import sys, os, socket, subprocess, logging, argparse, time
 import regd.util as util
@@ -83,14 +83,8 @@ def connectToServer( sockfile=None, host=None, port=None, tmout=3 ):
 	return sock	
 
 def checkConnection(sockfile=None, host=None, port=None):
-	try:
-		sock = connectToServer(sockfile, host, port, 3)
-	except ISException:
-		return False
 	res = Client((defs.CHECK_SERVER, None), None, sockfile, host, port )
 	
-	sock.shutdown( socket.SHUT_RDWR )
-	sock.close()
 	return (res[0] == '1')
 	
 def Client( cmd, opt, sockfile=None, host=None, port=None ):
@@ -250,7 +244,9 @@ def main(*kwargs):
 				f.write( "" )
 
 		filelog = logging.FileHandler( logfile )
-		filelog.setLevel( logging.WARNING )
+		filelog.setLevel( logging.INFO )
+		bf = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
+		filelog.setFormatter( bf )
 		util.log.addHandler( filelog )
 	
 	# Test module
@@ -439,9 +435,10 @@ def main(*kwargs):
 		# Postprocessing
 		
 		if res[0] != '1':
-			if args.cmd.startswith( "get" ):
+			if res[0] != '0':
 				print( "0", res )
-			log.error( res )
+			else:
+				print( res )
 			return -1
 		if cmd == COPY_FILE:
 			if writeFile:

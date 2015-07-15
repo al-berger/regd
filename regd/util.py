@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-13 04:15:08"
+__lastedited__="2015-07-14 05:58:16"
 
 import sys, os, pwd, logging, signal
 import configparser
@@ -100,8 +100,6 @@ def setLog( loglevel, logtopics=None ):
 		# Console output ( for debugging )
 		strlog = logging.StreamHandler()
 		strlog.setLevel( loglevel )
-		bf = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
-		strlog.setFormatter( bf )
 		log.addHandler( strlog )
 	
 	if logtopics:
