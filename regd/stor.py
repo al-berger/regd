@@ -10,14 +10,17 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-15 07:49:54"
+__lastedited__="2015-07-31 01:13:34"
 
-import sys, re, subprocess, tempfile, os
+import sys, re, subprocess, tempfile, os, time
 from enum import Enum
 from regd.util import log, logtok, ISException, unknownDataFormat, operationFailed, \
-	objectNotExists, valueAlreadyExists, valueNotExists, unrecognizedParameter
+	objectNotExists, valueAlreadyExists, valueNotExists, unrecognizedParameter, programError
 from regd.tok import parse_token, stripOne
 from collections import deque, OrderedDict
+
+from errno import ENOENT
+from stat import S_IFDIR, S_IFLNK, S_IFREG
 
 SECTIONPATT="^\[(.*)\]$"
 SECTIONNAMEPATT="^(.*?)(?<!\\\):(.*)"
@@ -39,22 +42,73 @@ class EnumMode(Enum):
 	tokensAll	= 5
 	sectionsAll	= 6
 	
-class SItem:
-	'''Storage item.'''
-	def __init__(self):
+class st_struct:
+	'''stat struct'''
+	def __init__(self, mode=None, uid=None, gid=None, ctime=None, mtime=None, atime=None,
+				nlink=None):
+		nowtm = time.time() 
+		self.st_mode = mode if mode else 0o644 
+		self.st_uid = uid if uid else os.getuid()
+		self.st_gid = gid if gid else os.getgid()
+		self.st_ctime = ctime if ctime else nowtm 
+		self.st_mtime = mtime if mtime else nowtm 
+		self.st_atime = atime if atime else nowtm 
+		self.st_nlink = nlink if nlink else 1
 	
+class SItem:
+	'''Storage item'''
+	def __init__(self, itype, mode=None, uid=None, gid=None, ctime=None, mtime=None, atime=None,
+				nlink=None):
+		self.itype = itype
+		self.st = st_struct(mode, uid, gid, ctime, mtime, atime, nlink)
+		return super(SItem, self).__init__( )
+	
+	def getAttr(self, attrName = None):
+		if not attrName:
+			st_mode = (self.itype | self.st.st_mode)
+			ret = {'st_mode':st_mode, 'st_uid':self.st.st_uid, 'st_gid':self.st.st_gid,
+				'st_dev':0, 'st_rdev':0, 'st_ino':0, 'st_size':4, 'st_blksize':1,
+				'st_blocks':1 }
+			return ret
+		
+	def setAttr(self, **kwargs):
+		for k, v in kwargs.items():
+			if k == 'st_mode':
+				self.st_mode = v
+				
+		
+class SVal(SItem):
+	'''Storage value container.'''
+	def __init__(self, val=None, mode=None, uid=None, gid=None, ctime=None, mtime=None, atime=None,
+				nlink=None):
+		self.val = val
+		return super(SVal, self).__init__( S_IFREG, mode, uid, gid, ctime, mtime, atime, nlink )
+	
+	def __str__(self):
+		if type(self.val) is bytes:
+			return self.val.decode( 'utf-8' )
+		else:
+			return self.val
 
-
-class Stor(dict):
-
-	def __init__(self, name=''):
+class Stor(SItem, dict):
+	def __init__(self, name='', mode=None, uid=None, gid=None, ctime=None, mtime=None, atime=None,
+				nlink=None):
 		self.name = name
 		self.path = ''
 		self.enumMode = None
-		return super(Stor, self).__init__( )
+		return super(Stor, self).__init__( S_IFDIR, mode, uid, gid, ctime, mtime, atime, nlink )
 		
 	def __getitem__( self, key ):
-		return super(Stor, self).__getitem__( key )
+		item = super(Stor, self).__getitem__( key )
+		if isinstance( item, baseSectType ):
+			return item
+		elif isinstance(item, baseValType):
+			return item.val
+		else:
+			raise ISException( programError, "Storage item type is: {0}".format(str(type(item))))
+	
+	def get(self, *args, **kwargs):
+		return dict.get(self, *args, **kwargs)
 	
 	def __setitem__( self, key, val ):
 		if self.name and not key:
@@ -73,8 +127,10 @@ class Stor(dict):
 				else:
 					val.setPath( '' )
 			val.setName( key )
+		else:
+			val = SVal( val, self.st.st_mode, self.st.st_uid, self.st.st_gid )
 			
-		return super(Stor, self).__setitem__( key, val )		
+		return super(Stor, self).__setitem__( key, val )
 	
 	def __delitem__( self, key ):
 		return super(Stor, self).__delitem__( key )
@@ -120,7 +176,6 @@ class Stor(dict):
 		it = Stor.StorIter(self, em)
 		
 		return it
-		
 	
 	def enumerate(self, mode):
 		self.enumMode = mode
@@ -178,10 +233,18 @@ class Stor(dict):
 		else:
 			raise ISException()
 		return cnt
+	
+	def getSItemAttr( self, path, attrName=None ):
+		item = self.getToken( path )
+		return item.getAttr( attrName )
+	
+	def setSItemAttr( self, path, **kwargs ):
+		item = self.getToken( path )
+		return item.setAttr( kwargs )	
 		
 	def getSection( self, path ):
 		if path:
-			if path[0] not in self.keys():
+			if path[0] not in self.keys() or not isinstance( self[path[0]], baseSectType ):
 				raise ISException(objectNotExists, path[0], "Section doesn't exist")
 			if len(path) > 1:
 				return self[path[0]].getSection(path[1:])
@@ -254,6 +317,7 @@ class Stor(dict):
 		self[nam] = val
 		
 	def getToken(self, tok):
+		'''Returns the SVal container.'''
 		path, nam, _ = parse_token(tok, bVal=False)
 		
 		logtok.debug("[tok: {0}]:  path: {1} ; nam: {2}".format( tok, path, nam))
@@ -262,12 +326,16 @@ class Stor(dict):
 			raise ISException( unknownDataFormat, tok )
 		
 		sec = self.getSection( path )
-		return sec.getVal(nam)
+		return sec.getSVal(nam)
+	
+	def getTokenVal(self, tok):
+		'''Returns the token's value.'''
+		return self.getToken(tok).val
 		
-	def getVal(self, nam):
+	def getSVal(self, nam):
 		if nam not in self.keys():
 			raise ISException(valueNotExists, nam)
-		return self[nam]			
+		return self.get( nam )			
 		
 	def removeToken(self, tok):
 		path, nam, _ = parse_token(tok, bVal=False)
@@ -388,6 +456,9 @@ def isPathPers(path):
 	else:
 		return False
 
+baseSectType = Stor 
+baseValType = SVal
+
 def read_tokens_from_lines( lines, stok, noOverwrite=True ):
 	'''Loads tokens to 'stok' from a string list.'''
 	'''Section names must be in square brackets and preceded by an empty line (if not at
@@ -400,14 +471,13 @@ def read_tokens_from_lines( lines, stok, noOverwrite=True ):
 	curPath = ''
 	curTok = None
 	
-	logtok.debug("stok: %s" % stok.pathName())
 	emptyLine = True
 	
 	def flush():
 		nonlocal curTok, curPath
 		if curTok:
 			mtok = reTok.match(curTok)
-			if mtok.lastindex != 2:
+			if not mtok or mtok.lastindex != 2:
 				raise ISException(unknownDataFormat, l, "Cannot parse token.")
 			stok.addToken(curPath + curTok, noOverwrite)
 			curTok = None

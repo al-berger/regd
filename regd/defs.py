@@ -10,9 +10,9 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-12 18:55:36"
+__lastedited__="2015-07-31 00:09:16"
 
-VERSION = ( 0, 6, 'pre', 19 )
+VERSION = ( 0, 6, 'pre', 20 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -22,6 +22,7 @@ __license__ = 'GPL'
 rversion = '.'.join(map(str, VERSION[0:3]))+ '.r' + str(VERSION[3])
 
 sockname 			= 'regd.sock'
+# Start command
 APPNAME 			= "regd"
 # Default command for loading secure tokens
 READ_ENCFILE_CMD 	= "gpg --textmode -d FILENAME"
@@ -40,6 +41,8 @@ STOP_SERVER			= "stop"
 RESTART_SERVER		= "restart"
 CHECK_SERVER		= "check"
 REPORT				= "what"
+GETATTR				= "getattr"
+SETATTR				= "setattr"
 LIST				= "ls"
 ADD_TOKEN 			= "add"
 ADD_TOKEN_SEC		= "add_sec"
@@ -62,6 +65,11 @@ TEST_MULTIUSER_END 	= "test_multiuser_end"
 HELP 				= "help"
 VERS				= "version"
 
+# Regd options
+SERVER_NAME			= "server_name"
+LOG_LEVEL			= "log_level"
+LOG_TOPICS			= "log_topics"
+
 # Command options
 DEST				= "dest"
 SESSION				= "session"
@@ -71,6 +79,8 @@ TREE				= "tree"
 FORCE				= "force"
 SERVER_SIDE			= "server_side"
 FROM_PARS			= "from_pars"
+ATTR				= "attr"
+BINARY				= "binary"
 
 # Report ("what") options
 ACCESS 				= "access"
@@ -79,7 +89,7 @@ DATAFILE			= "datafile"
 VERS 
 
 # Command groups
-all_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, CHECK_SERVER, REPORT,
+all_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, CHECK_SERVER, REPORT, GETATTR, SETATTR,
 			LIST, ADD_TOKEN, ADD_TOKEN_SEC, LOAD_FILE, LOAD_FILE_SEC, COPY_FILE, GET_TOKEN, 
 			GET_TOKEN_SEC, REMOVE_TOKEN, REMOVE_TOKEN_SEC, REMOVE_SECTION,
 			REMOVE_SECTION_SEC, CLEAR_SEC, CLEAR_SESSION, TEST_START, TEST_CONFIGURE,
@@ -92,5 +102,5 @@ pers_opts = (PERS)
 local_cmds = (TEST_START, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END)
 # For executing these commands on server they must come with --server-side switch 
 nonlocal_cmds = (SHOW_LOG, VERS)
-cmd_opts = ( DEST, SESSION, PERS, ALL, TREE, FORCE, SERVER_SIDE, FROM_PARS )
+cmd_opts = ( DEST, SESSION, PERS, ALL, TREE, FORCE, SERVER_SIDE, FROM_PARS, ATTR, BINARY )
 rep_opts = (ACCESS, STAT, DATAFILE)

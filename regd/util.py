@@ -10,9 +10,9 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-14 05:58:16"
+__lastedited__="2015-07-30 20:13:57"
 
-import sys, os, pwd, logging, signal
+import sys, os, pwd, logging, signal, re
 import configparser
 import regd.defs as defs
 
@@ -173,15 +173,22 @@ def parse_server_name( server_string ):
 			servername = server_string
 			
 	if not servername:
-		servername = "regd"
+		servername = None
 	else:
 		if len( servername ) > 32:
 			raise ISException( unknownDataFormat, server_string, 
 							"The server name must not exceed 32 characters.")
+		for c in "\\/:@":
+			if c in servername:
+				raise ISException( unknownDataFormat, server_string, 
+								"Server name contains not permitted character: '{0}'".format( c ))
 	
 	return ( atuser, servername )
 
-def get_filesock_addr( atuser, servername ):
+def get_filesock_addr( atuser=None, servername=None ):
+	'''Composes and returns the file socket filename. Without 'servername' parameter 
+	returns only the socket directory.'''
+	
 	tmpdir = os.getenv("TMPDIR", "/tmp")
 	tmpdir += "/regd-" + defs.rversion
 	if atuser:
@@ -191,8 +198,24 @@ def get_filesock_addr( atuser, servername ):
 		userid = os.getuid()
 		sockdir = '{0}/{1}'.format( tmpdir, userid )
 		
-	_sockfile = '{0}/.{1}.{2}'.format( sockdir, servername, defs.sockname )	
+	if not servername:
+		_sockfile = None
+	else:
+		_sockfile = '{0}/.{1}.{2}'.format( sockdir, servername, defs.sockname )	
 	return ( sockdir, _sockfile )
+	
+def parse_sockfile_name(sf):
+	if sf.endswith(defs.sockname):
+		sn = os.path.basename( sf )
+		sn = sn[0:(len(sn) - ( len(defs.sockname) + 1 ) )]
+		return ( 1, sn[1:], None)
+	elif sf.endswith(defs.sockname + ".ip"):
+		sn = os.path.basename( sf )
+		sn = sn[0:(len(sn) - ( len(defs.sockname) + 3 + 1) )]
+		host, _, port = sn.partition("_")
+		return ( 2, host[1:], port )
+	else:
+		return ( 0, None, None )
 	
 def printMap( m, indent ):
 	ret = ""
@@ -238,7 +261,39 @@ def sendPack(sock, pack):
 	cmdpack.extend( pack )
 	sock.sendall( cmdpack )
 	
-def createPacket(cmd : 'in list', opt : 'in list', bpack : 'out bytearray'):
+def createPacket( cpars : 'in map', bpack : 'out bytearray' ):
+	'''Create a command packet for sending to a regd server.'''
+	# Format: <packlen> <cmd|opt> <numparams> [<paramlen> <param>]...
+	
+	if not cpars.get("cmd", None):
+		raise ISException( unknownDataFormat, "Command parameters must have 'cmd' field.")
+	
+	bpack.extend( (cpars["cmd"] + ' ').encode('utf-8') )
+	if cpars.get("params"):
+		bpack.extend( (str(len(cpars["params"])) + ' ' ).encode('utf-8'))
+		for par in cpars["params"]:
+			b = bytearray( par, encoding='utf-8')
+			bpack.extend( (str(len(b)) + ' ' ).encode('utf-8'))
+			bpack.extend( b )
+	else:
+		bpack.extend( b'0' )
+	
+	for k, v in cpars.items():
+		if not k or k in ["cmd", "params"]:
+			continue
+		
+		bpack.extend( (' ' + k + ' ').encode('utf-8') )
+		if v and not(v is True):
+			bpack.extend( (str(len(v)) + ' ' ).encode('utf-8'))
+			for par in v:
+				b = bytearray( v, encoding='utf-8')
+				bpack.extend( (str(len(b)) + ' ' ).encode('utf-8') )
+				bpack.extend( b )
+		else:
+			bpack.extend( b'0' )		
+	
+	
+def createPacketFromLists(cmd : 'in list', opt : 'in list', bpack : 'out bytearray'):
 	# Creating packet: <packlen> <cmd|opt> <numparams> [<paramlen> <param>]...
 	if cmd:
 		bpack.extend( (cmd[0] + ' ').encode('utf-8') )
@@ -283,6 +338,8 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 		numparams, _, data = data.partition(b' ')
 		try:
 			numparams = int( numparams.decode('utf-8') )
+			word = word.decode('utf-8')
+			
 			for _ in range(0, numparams):
 				paramlen, _, data = data.partition(b' ')
 				paramlen = int( paramlen.decode('utf-8') )
@@ -290,9 +347,11 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 				if not paramlen: raise 
 				param = data[:paramlen]
 				data = data[paramlen+1:]
-				params.append(param.decode('utf-8'))				
+				if word == "binary":
+					params.append( bytes( param) )
+				else:
+					params.append( param.decode('utf-8' ))				
 			
-			word = word.decode('utf-8')
 			if word in defs.all_cmds:
 				# One command per packet
 				if cmd: raise 
@@ -314,6 +373,105 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 		raise ISException(unknownDataFormat, "Command is not recognized.")
 	
 	return cmd
+
+def composeResponse(bpack : 'out bytearray', code='1', *args):
+	'''Response message has hierachical recursive format and can have any number of nested 
+	levels. Message logically consists of opaque data chunks (ODC) composed into objects with a
+	simple structure: each object contains the number of items it composed of, the items
+	themselves and the type of each item: ODC or object.
+	Format of an object: <ITEMTYPE> <NUMITEMS | ITEMSIZE> <ITEM> 
+	args argument can contain strings, bytearrays, None, lists and dictionaries, with the 
+	latter two also containing these five types.
+	'''
+	def packObject( ob ):
+		if ob is None:
+			bpack.extend( ('N').encode('utf-8') )
+		if type(ob) is str:
+			ba = bytearray( ob, encoding='utf-8')
+			bpack.extend( ('S' + str(len(ba)) + ' ').encode('utf-8') )
+			bpack.extend( ba )
+		elif type(ob) is bytearray:
+			bpack.extend( ('B' + str(len(ob)) + ' ').encode('utf-8') )
+			bpack.extend( ob )
+		elif type( ob ) is list:
+			bpack.extend( ( 'L' + str(len(ob) ) + ' ').encode('utf-8') )
+			for item in ob:
+				packObject(item)
+		elif type( ob ) is dict:
+			bpack.extend( ( 'D' + str(len(ob) * 2 ) + ' ').encode('utf-8') )
+			for k,v in ob:
+				packObject(k)
+				packObject(v)				
+	
+	bpack.extend( (code + ' ').encode('utf-8') )
+	if args == None:
+		return packObject(None)
+	
+	bpack.extend( ( 'L' + str(len(args) ) ).encode('utf-8') )
+	if len( args ):
+		bpack.extend( b' ' )
+	for item in args:
+		packObject( item )
+	
+	
+
+def parseResponse( 	resp : "byte array with server response",
+					lres : "result list"):
+	'''Function for parsing regd server response.'''
+	def unpackObject( _data, seqout ):
+		data = _data[0]
+		hdr, _, data = data.partition(b' ')
+		ot = hdr[0:1].decode('utf-8') # object type
+		_data[0] = data
+		if ot == 'N':
+			return
+		sz = int(hdr[1:]) # object size / number of items
+		if ot == 'B':
+			arr = data[:sz]
+			data = data[sz:]
+			seqout.append(arr)
+		elif ot == 'S':
+			arr = data[:sz]
+			data = data[sz:]
+			seqout.append(arr.decode('utf-8'))
+		elif ot == 'L':
+			l = []
+			seqout.append( l )
+			for _ in range(0, sz):
+				unpackObject( _data, l )
+			if len( l ) == 1:
+				s = seqout.pop()[0]
+				seqout.append( s )
+			elif not l:
+				seqout.pop()
+					
+		elif ot == 'D':
+			m = {}
+			seqout.append( m )
+			for _ in range(0, sz):
+				l = []
+				unpackObject( _data, l )
+				if len( l ) > 1:
+					raise ISException(unknownDataFormat, resp[:20], 
+									moreInfo="Dictionary key is a compound object")
+				k = l[0]
+				l=[]
+				unpackObject( _data, l )
+				if len( l ) == 1:
+					v = l[0]
+				else:
+					v = l
+				m[k] = [v]
+		
+		_data[0] = data
+				
+	
+	res, _, data = resp.partition( b' ' )
+	if not data:
+		raise ISException( unknownDataFormat, resp[:20])
+	lres.append( res.decode('utf-8') )
+	unpackObject([data], lres )
+	
 
 def getLog( n ):
 	d = {}
@@ -366,6 +524,17 @@ def getSwitches(opts, *args):
 	
 	return ret
 
+def getOptionMap(opts):
+	# opts - list of pairs with the first item being the option name
+	ret={}
+	for op in opts:
+		if op[1]:
+			ret[op[0]] = op[1]
+		else:
+			ret[op[0]] = None
+	
+	return ret
+
 def removeOptions(opts, *args):
 	if not opts:
 		return
@@ -374,3 +543,19 @@ def removeOptions(opts, *args):
 			if opts[i][0] == a:
 				opts = opts[:i] + opts[(i+1):]
 				i -= 1
+				
+def checkHostAddr( host, port ):
+	if not re.match( "[a-zA-Z0-9\.-]+", host ):
+		return ( "Host name contains invalid characters. Only numbers, letters, dots and ",
+				"hyphens are allowed." )
+
+	if len( host ) > 255:
+		return( "Host name is too long." )
+
+	if not re.match( "[0-9]+", port ):
+		return( "Port number must only contain digits." )
+		
+	if int( port ) > 65536:
+		return( "The number must be no greater than 65536." )
+	
+					
