@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-14 06:30:51"
+__lastedited__="2015-07-30 15:54:21"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
 import ipaddress
@@ -18,7 +18,7 @@ import fcntl  # @UnresolvedImport
 import regd.util as util, regd.defs as defs
 from regd.util import log, ISException, permissionDenied, persistentNotEnabled, valueNotExists,\
 	operationFailed, sigHandler, unrecognizedParameter,\
-	unrecognizedSyntax
+	unrecognizedSyntax, composeResponse, objectNotExists
 from regd.stor import EnumMode, read_locked, write_locked, get_token,\
 	read_sec_file, remove_section, remove_token, getstor
 import regd.stor as stor
@@ -131,15 +131,24 @@ class RegdServer:
 	def start_loop(self):
 		
 		if self.sockfile and os.path.exists( self.sockfile ):
+			log.info("Socket file for a server with name already exists. Checking for the server process.")
 			'''Socket file may remain after an unclean exit. Check if another server is running.'''
 			try:
 				# If the server is restarted, give the previous instance time to exit cleanly.
 				time.sleep( 2 )
-				res = subprocess.check_output( 
-							"ps -ef | grep '{0} --start .* {1} ' | grep -v grep".format( 
-												__main__.__file__, self.servername ),
-							shell = True )
-				res = res.decode( 'utf-8' )
+				if self.servername and self.servername != "regd":
+					s = "ps -ef | grep '{0}(/cli.py)? start .*{1} {2}' | grep -v grep".format( 
+												APPNAME, 
+												defs.SERVER_NAME, 
+												self.servername )
+				else:
+					s = "ps -ef | grep '{0}(/cli.py)? start' | grep -v '{1}' | grep -v grep".format( 
+												APPNAME, 
+												defs.SERVER_NAME )
+					
+				
+				res = subprocess.check_output( s, shell = True ).decode( 'utf-8' )
+				
 			except subprocess.CalledProcessError as e:
 				if e.returncode != 1:
 					log.error( "Check for already running server instance failed: {0} ".format( e.output ) )
@@ -152,7 +161,7 @@ class RegdServer:
 					'''Server is already running.'''
 					log.warning( "Server is already running:\n{0}".format( res ) )
 					return 1
-	
+			log.info( "Server process is not found. Unlinking the existing socket file.")
 			try:
 				os.unlink( self.sockfile )
 			except OSError:
@@ -284,34 +293,60 @@ class RegdServer:
 			spar = None
 			if len( cmdData ) > 1:
 				spar = cmdData[1] 
+				
+			swPers, swTree, swForce, swFromPars = util.getSwitches( cmdOptions, 
+												PERS, TREE, FORCE, FROM_PARS )
+			optDest, optBinary = util.getOptions( cmdOptions, DEST, BINARY)
+			
+			optmap = util.getOptionMap( cmdOptions )
 			
 			log.debug("fpar: {0} ; spar: {1}".format( fpar, spar ) )
+			
+			bresp = bytearray()
+			retCode = '0'
 				
 			try:
 			
 				if cmd == STOP_SERVER:
-					resp = "1"
+					composeResponse( bresp )
 	
 				elif cmd == CHECK_SERVER:
-					resp = "1Up and running since {0}\nUptime:{1}.".format(	
+					resp = "Up and running since {0}\nUptime:{1}.".format(	
 							str(self.timestarted).rpartition(".")[0], 
 							str(datetime.datetime.now() - self.timestarted).rpartition(".")[0])
+					composeResponse(bresp, '1', resp )
 					
 				elif cmd == VERS:
-					resp = "1 Regd version on server: " + defs.__version__
+					composeResponse( bresp, '1', "Regd version on server: " + defs.__version__ )
 				
 				elif cmd == REPORT:
 					if not fpar:
-						resp = "0Unrecognized command syntax: the command parameter is missing."
-					else:			
+						resp = "Unrecognized command syntax: the command parameter is missing."
+					else:
+						retCode = '1'
 						if fpar == defs.ACCESS:
-							resp = "1{0}".format( self.acc )
+							resp = "{0}".format( self.acc )
 						elif fpar == defs.STAT:
-							resp = "1" + self.prepareStat()
+							resp = self.prepareStat()
 						elif fpar == defs.DATAFILE:
-							resp = "1" + self.datafile
+							resp = self.datafile
 						else:
-							resp = "0Unrecognized command syntax."
+							retCode = '0'
+							resp = "Unrecognized command syntax."
+							
+					composeResponse(bresp, retCode, resp ) 
+							
+				elif cmd == GETATTR:
+					'''Query for attributes of a storage item.
+					Syntax: GETATTR <itempath> [attrname]
+					Without 'attrname' returns 'st_stat' attributes like function 'getattr'.
+					With 'attrname' works like 'getxattr'.
+					'''
+					attrNames = None
+					if ATTR in optmap:
+						attrNames = optmap[ATTR]
+					m = self.fs.getSItemAttr( fpar, attrNames )
+					composeResponse(bresp, '1', m)					
 							
 				elif cmd == SHOW_LOG:
 					n = 20
@@ -321,47 +356,37 @@ class RegdServer:
 						except ValueError as e:
 							raise ISException(unrecognizedParameter, spar, 
 								moreInfo="Number of lines only must contain digits.")
-					resp = "1" + util.getLog(n)
-														
+					composeResponse( bresp, '1', util.getLog(n) )
+					
 				elif cmd == LIST:
-					treeView = False
-					for op in cmdOptions:
-						if op[0] == TREE:
-							treeView = True
 					lres = []
 					if not cmdData:
-						self.fs.listItems( lres, treeView, 0, False)
-					elif fpar.startswith(stor.SESPATH):
-						self.tokens.listItems(lres, treeView, 0, False)
-					elif fpar.startswith(stor.PERSPATH):
-						self.perstokens.listItems( lres, treeView, 0, False)
+						self.fs.listItems( lres, swTree, 0, False)
 					else:
-						raise ISException(valueNotExists, fpar, "Section doesn't exist.")
-					resp = "1"+"\n".join(lres)
+						sect = self.fs.getSectionFromStr(fpar)
+						sect.listItems(lres, swTree, 0, False)
+					
+					#composeResponse( bresp, '1', "\n".join(lres) )
+					composeResponse( bresp, '1', lres )
 					
 				elif cmd in (ADD_TOKEN, LOAD_FILE, COPY_FILE):
 					dest = None
 					noOverwrite = True
-					pers = False
 					if not fpar:
 						raise ISException(unrecognizedSyntax, moreInfo="No items specified.")
-					for op in cmdOptions:
-						if op[0] == DEST:
-							if not op[1] or not self.fs.isPathValid(op[1]):
-								raise ISException(unrecognizedParameter, 
+					if DEST in optmap:
+						if not optmap[DEST] or not self.fs.isPathValid(optmap[DEST]):
+							raise ISException(unrecognizedParameter, 
 									moreInfo="Parameter '{0}' must contain a valid section name.".format(DEST))
-							dest = op[1]
-								
-						if op[0] == PERS:
-							if dest:
-								raise ISException(unrecognizedSyntax, 
+							dest = optmap[DEST]
+					if PERS in optmap:
+						if dest:
+							raise ISException(unrecognizedSyntax, 
 									moreInfo="{0} and {1} cannot be both specified for one command.".format(
 																					DEST, PERS))
-							dest = stor.PERSPATH
-							pers = True
-						
-						if op[0] == FORCE:
-							noOverwrite = False
+						dest = stor.PERSPATH
+					if FORCE in optmap:
+						noOverwrite = True
 						
 					# Without --dest or --pers options tokens are always added to /ses
 					if not dest:
@@ -379,33 +404,31 @@ class RegdServer:
 						if dest and dest.startswith(stor.PERSPATH):
 							write_locked( self.data_fd, self.perstokens )
 							
-						resp = "1"
+						composeResponse( bresp )
 						
 					elif cmd == LOAD_FILE:
 						'''Load tokens from a file.'''
-						frompars = util.getSwitches( cmdOptions, FROM_PARS )[0]
-						log.debug("from_pars: {0}; dest: {1} .".format( frompars, dest ) )
+						log.debug("from_pars: {0}; dest: {1} .".format( swFromPars, dest ) )
 							
-						if not frompars:
+						if not swFromPars:
 							for filename in cmdData:
 								if os.path.exists( filename ):
 									stor.read_tokens_from_file(filename, tok, dest, noOverwrite)
 								else:
-									resp = "{0}File not found: {1}".format( valueNotExists, cmdData )
+									raise ISException( objectNotExists, filename, "File not found")
 						else:
 							stok = self.fs.getSectionFromStr(dest)
 							for file in cmdData:
 								stor.read_tokens_from_lines( file.split('\n'), stok, noOverwrite)
 							
-						resp = "1"
+						composeResponse( bresp )
 						
 					elif cmd == COPY_FILE:
-						frompars = util.getSwitches( cmdOptions, FROM_PARS )[0]
 						src = cmdData[0]
 						dst = cmdData[1]
 						ret = None
 						if dst[0] == ':': # cp from file to token
-							if frompars:
+							if swFromPars:
 								val = src
 							else:
 								with open(src) as f:
@@ -416,35 +439,34 @@ class RegdServer:
 						elif src[0] == ':': # cp from token to file
 							src = src[1:]
 							if not self.fs.isPathValid( src ):
-								src = "{0}/{1}".format(stor.PERSPATH if pers else stor.SESPATH, fpar)
+								src = "{0}/{1}".format(stor.PERSPATH if swPers else stor.SESPATH, fpar)
 							
-							ret = self.fs.getToken(src)
+							ret = self.fs.getTokenVal(src)
 							
-						resp = "1" + ret
+						composeResponse( bresp, '1', ret )
 				
 				elif cmd in ( GET_TOKEN, REMOVE_TOKEN, REMOVE_SECTION):
-					pers = util.getSwitches( cmdOptions, PERS)[0]
 					if not self.fs.isPathValid( fpar ):
-						fpar = "{0}/{1}".format(stor.PERSPATH if pers else stor.SESPATH, fpar)
+						fpar = "{0}/{1}".format(stor.PERSPATH if swPers else stor.SESPATH, fpar)
 					elif stor.isPathPers(fpar):
-						pers = True
+						swPers = True
 						
-					log.debug( "pers: {0} ; fpar: {1}".format( pers, fpar ))
+					log.debug( "pers: {0} ; fpar: {1}".format( swPers, fpar ))
 												
 					if cmd == GET_TOKEN:
-						resp = "1" + self.fs.getToken(fpar)
+						composeResponse( bresp, '1', self.fs.getTokenVal(fpar) )
 		
 					elif cmd == REMOVE_TOKEN:
 						self.fs.removeToken(fpar)
-						if pers:
+						if swPers:
 							stor.write_locked(self.data_fd, self.perstokens)
-						resp = "1"
+						composeResponse( bresp )
 		
 					elif cmd == REMOVE_SECTION:
 						self.fs.removeSection(fpar)
-						if pers:
+						if swPers:
 							stor.write_locked(self.data_fd, self.perstokens)
-						resp = "1"
+						composeResponse( bresp )
 						
 				elif cmd == LOAD_FILE_SEC:
 					if not fpar:
@@ -453,49 +475,47 @@ class RegdServer:
 						file = fpar
 	
 					read_sec_file( file, self.secTokCmd, self.sectokens  )
-					resp = "1"
+					composeResponse( bresp )
 						
 				elif cmd == GET_TOKEN_SEC:
 					''' Get secure token. '''
 					if not fpar:
-						resp = "0No token specified."
+						composeResponse( bresp, '0', "No token specified." )
 					else:
 						if not len( self.sectokens ):
 							'''Sec tokens are not read yet. Read the default priv. file.'''
 							if not self.defencread:
 								read_sec_file( self.encFile, self.secTokCmd, self.sectokens )
 								self.defencread = True
-						resp = "1" + get_token( self.sectokens, fpar )
+						#resp = "1" + get_token( self.sectokens, fpar )
+						composeResponse( bresp, '1', self.sectokens.getTokenVal( fpar ) )
 	
 				elif cmd == REMOVE_TOKEN_SEC:
 					self.sectokens.removeToken( fpar )
-					resp = "1"
+					composeResponse( bresp )
 						
 				elif cmd == REMOVE_SECTION_SEC:
-					try:
-						remove_section( self.sectokens, fpar )
-						resp = "1"
-					except ISException as e:
-						resp = str( e )
+					remove_section( self.sectokens, fpar )
+					composeResponse( bresp )
 						
 				elif cmd == CLEAR_SEC:
 					self.sectokens = getstor()
-					resp = "1"
+					composeResponse( bresp )
 	
 				elif cmd == CLEAR_SESSION:
 					self.sectokens = getstor()
 					self.tokens = getstor()
-					resp = "1"
+					composeResponse( bresp )
 					
 			except ISException as e:
-				resp = str(e)
+				composeResponse(bresp, '0', str(e) )
 			except Exception as e:
-				resp = "0" + e.args[0]
+				composeResponse(bresp, '0', e.args[0] )
 			except BaseException as e:
-				resp = "0" + str( e )
+				composeResponse(bresp, '0', str(e) )
 				
 		try:
-			util.sendPack(connection, bytearray( resp, encoding = 'utf-8' ) )
+			util.sendPack(connection, bresp )
 		except OSError as er:
 			log.error( "Socket error {0}: {1}\nClient address: {2}\n".format( 
 							er.errno, er.strerror, client_address ) )

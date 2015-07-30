@@ -2,7 +2,7 @@
 '''********************************************************************
 *	Package:		regd
 *	
-*	Module:			regd.regd
+*	Module:			regd.cli
 *
 *	Created:		2015-Apr-05 06:20:25 PM
 *
@@ -12,9 +12,10 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-15 05:19:04"
+__lastedited__ = "2015-07-30 17:13:37"
 
 import sys, os, socket, subprocess, logging, argparse, time
+from collections import defaultdict
 import regd.util as util
 from regd.util import ISException, unknownDataFormat, objectNotExists, cannotConnectToServer, clc,\
 	declc, clp
@@ -83,25 +84,29 @@ def connectToServer( sockfile=None, host=None, port=None, tmout=3 ):
 	return sock	
 
 def checkConnection(sockfile=None, host=None, port=None):
-	res = Client((defs.CHECK_SERVER, None), None, sockfile, host, port )
+	lres = [] 
+	Client((defs.CHECK_SERVER, None), None, lres, sockfile, host, port )
 	
-	return (res[0] == '1')
+	return (lres[0] == '1')
 	
-def Client( cmd, opt, sockfile=None, host=None, port=None ):
+def Client( cpars, lres, sockfile=None, host=None, port=None ):
 	'''
 	"Client" function. Performs requests to a running server.
 	'''
-	util.log.debug("cmd={0}; opt={1}; sock={2}; host={3}; port={4}".format( 
-									cmd, opt, sockfile, host, port ))
+	util.log.debug("cpars={0}; sock={1}; host={2}; port={3}".format( 
+									cpars, sockfile, host, port ))
+	
+	if not cpars.get("cmd", None):
+		raise ISException( unknownDataFormat, "Command parameters must have 'cmd' field.")
 	
 	tmout = 3
-	if cmd[0].find( "_sec " ) != -1 or cmd[0].endswith( "_sec" ):
+	if cpars["cmd"].find( "_sec " ) != -1 or cpars["cmd"].endswith( "_sec" ):
 		tmout = 30
 
 	try:
 		data = bytearray()
 		bpack = bytearray()
-		util.createPacket(cmd, opt, bpack)
+		util.createPacket( cpars, bpack )
 		util.logcomm.debug("sending packet: {0}".format(bpack))
 		
 		try:
@@ -109,18 +114,141 @@ def Client( cmd, opt, sockfile=None, host=None, port=None ):
 			util.sendPack(sock, bpack)
 			util.recvPack(sock, data)
 		except ISException as e:
-			return "0" + str(e)
+			lres.extend(["0", str(e)])
+			return
 			
 		util.logcomm.debug("received packet: {0}".format(data))
 
 		sock.shutdown( socket.SHUT_RDWR )
 		sock.close()
 
-		return data[10:].decode( 'utf-8' )
+		util.parseResponse( data[10:], lres )
 	except OSError as er:
-		resp = "0regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
-												er.errno, er.strerror, sockfile, host, port )
-		return resp
+		lres = ["0", "regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
+												er.errno, er.strerror, sockfile, host, port )]
+
+def regdcmd( cmd = None, data = None, addr=None, servername = None, host = None, port = None, 
+			opt=None, lres=None ):
+	'''Adapter for the Client() for using from other packages.'''
+	sockfile = None
+	if addr:
+		if addr.find(":") != -1:
+			host, port = addr.partition(":")
+		else:
+			servername = addr
+			
+	if not host:
+		try:
+			atuser, servername = util.parse_server_name( servername )
+		except ISException as e:
+			print( e )
+			return e.code
+		
+		if not servername:
+			servername = "regd"
+	
+		_, sockfile = util.get_filesock_addr( atuser, servername )
+	
+	if lres is None:
+		lres = []
+		retl = False
+	else:
+		retl = True
+		
+	copts = {}
+	copts["cmd"] = cmd
+	copts["params"] = data
+	if opt:
+		for op in opt:
+			copts[op[0]] = op[1]
+		
+	res = doServerCmd( copts, lres, sockfile, host, port)
+		
+	if res or lres[0] != '1':
+		res = False
+	else:
+		res = True
+		
+	if not retl:
+		data = "".join(lres)
+		
+		if len(data) == 2 and ( type(data[1]) is str or type(data[1]) is bytes ):
+			ret = data[1]
+		else:
+			ret = data[1:]
+	else:
+		ret = None
+		lres = lres[1:]
+		
+	return res, ret
+
+def isServerCmd( cpars ):
+	cmd = cpars.get("cmd", None)
+	if not cmd:
+		return False
+	if cmd not in defs.local_cmds and not ( cmd in defs.nonlocal_cmds and not cpars.get( defs.SERVER_SIDE, None ) ):
+		return True
+	return False
+
+def doServerCmd( copts, lres, sockfile, host, port ):
+	'''Calls Client() with some pre- and postprocessing.'''
+	
+	if copts["cmd"] == LOAD_FILE and not copts.get("server_side", None):
+		files = []	
+		for fname in copts["params"]:
+			if not os.path.exists( fname ):
+				print( "File not found: ", fname )
+				return -1
+			with open(fname) as f:
+				files.append( f.read() )
+				
+		copts["params"] = files
+		copts[FROM_PARS] = True
+				
+	elif copts["cmd"] == COPY_FILE:
+		if len( copts["params"] ) != 2 or \
+			len( copts["params"][0]) == 0 or len( copts["params"][1]) == 0:
+			print("'cp' command requires two parameters.")
+			return 1
+		src = copts["params"][0]
+		dst = copts["params"][1]
+		writeFile = None
+		if src[0] == ':':
+			if copts["server_side"]:
+				print("Destination file cannot be on server side.")
+				return 1
+			else:
+				writeFile = dst
+		if dst[0] == ':' and not copts["server_side"]:
+			if not os.path.exists(src):
+				print("File not found: ", src)
+				return 1
+			with open(src) as f:
+				copts["params"][0] = f.read()
+			
+			copts[FROM_PARS] = True			
+		
+	copts.pop( SERVER_SIDE, None )
+	
+	if not copts:
+		copts = None
+	
+	Client( copts, lres, sockfile, host, port )
+	
+	# Postprocessing
+	
+	if lres[0] == '1':
+	
+		if copts["cmd"] == COPY_FILE:
+			if writeFile:
+				try:
+					with open( writeFile, "w") as f:
+						f.write(lres[1:])
+				except:
+					print("0Error: Failed storing query result to file '{0}'".format(writeFile))
+					return -1
+				
+	return 0
 
 def main(*kwargs):
 	global log
@@ -144,19 +272,19 @@ def main(*kwargs):
 			setattr( namespace, "actioncmd", True )
 			setattr( namespace, "cmd", self.dest[:] )
 			
-	cmdoptions = []
+	cmdoptions = defaultdict(list)
 	
 	class CmdParam( argparse.Action ):
 		def __call__( self, parser, namespace, values, option_string = None ):
 			if not values:
 				raise ValueError("Command parameter must have a value")
-			cmdoptions.append( ( self.dest[:], values ) )
+			cmdoptions[declc(self.dest)].append( values )
 			
 	class CmdSwitch( argparse.Action ):
 		def __call__( self, parser, namespace, values=None, option_string = None ):
 			if values:
 				raise ValueError("Command switch cannot have values")
-			cmdoptions.append( ( self.dest[:], None ) )
+			cmdoptions[declc(self.dest)].append( None )
 
 	parser = argparse.ArgumentParser( 
 		description = 'regd : Data cache server.'
@@ -166,9 +294,9 @@ def main(*kwargs):
 	parser.add_argument( 'params', nargs="*", help = 'Command parameters' )
 	
 	# Regd options
-	parser.add_argument( '--log-level', default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
-	parser.add_argument( '--log-topics', help = 'For debugging purposes.' )
-	parser.add_argument( '--server-name', help = 'The name of the server instance.' )
+	parser.add_argument( clp( LOG_LEVEL ), default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
+	parser.add_argument( clp( LOG_TOPICS ), help = 'For debugging purposes.' )
+	parser.add_argument( clp( SERVER_NAME ), help = 'The name of the server instance.' )
 	parser.add_argument( '--host', help = 'Run the server on an Internet socket with the specified hostname.' )
 	parser.add_argument( '--port', help = 'Run the server on an Internet socket with the specified port.' )
 	parser.add_argument( '--access', help = 'Access level for the server: private, public_read or public.' )
@@ -177,15 +305,19 @@ def main(*kwargs):
 	parser.add_argument( '--auto-start', action='store_true', help = 'If regd server is not running, start it before executing the command.' )
 
 	# Command options
-	parser.add_argument( clp( DEST ), action = CmdParam, help = "The name of the section into which tokens must be added.")
+	parser.add_argument( clp( DEST ), "-d", action = CmdParam, help = "The name of the section into which tokens must be added.")
 	parser.add_argument( clp( TREE ), action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format.")
 	parser.add_argument( clp( PERS ), action = CmdSwitch, nargs=0, help = "Apply the command to persistent tokens.")
 	parser.add_argument( clp( FORCE ), "-f", action = CmdSwitch, nargs=0, help = "Overwrite existing token values when adding tokens.")
 	parser.add_argument( clp( SERVER_SIDE ), action="store_true", help = "Execute command on the server side (only for 'client-or-server' commands).")
+	parser.add_argument( clp( BINARY ), "-b", action = CmdParam, help = "Binary data.")
 	
 	args = parser.parse_args(*kwargs)
 	
 	cmd = declc(args.cmd)
+	
+	cmdoptions["cmd"] = cmd
+	cmdoptions["params"] = args.params
 	
 	if cmd == HELP:
 		print( USAGE )
@@ -206,7 +338,13 @@ def main(*kwargs):
 		print( e )
 		return e.code
 	log.debug("Server name: %s ; atuser: %s" % (servername, atuser))
-		
+	
+	if servername == "regd":
+		raise  ISException( util.unrecognizedParameter, 
+			"Default server name should not be specified in command line parameters.")
+	if not servername:
+		servername = "regd"
+
 	userid = os.getuid()
 	defs.homedir = util.get_home_dir()
 	defs.confdir = util.get_conf_dir()
@@ -233,6 +371,8 @@ def main(*kwargs):
 		sockdir, _sockfile = util.get_filesock_addr( atuser, servername )
 		log.debug("sockdir: %s ; sockfile: %s  " % (sockdir, _sockfile))
 	else:
+		sockdir, _sockfile = util.get_filesock_addr( None, host + '_' + port)
+		_sockfile += ".ip"
 		log.debug("host: %s ; port: %s  " % (host, port))
 	
 	# File log
@@ -291,13 +431,13 @@ def main(*kwargs):
 		if atuser and userid:
 			log.error( "Server cannot be started with server name containing '@'.")
 			return 1
-		if not host:
-			try:
-				os.makedirs( sockdir, mode=0o777, exist_ok=True )
-				os.chmod( sockdir, mode=0o777 )
-			except Exception as e:
-				print("Error: cannot create temporary file socket directory. Exiting.")
-				return -1
+
+		try:
+			os.makedirs( sockdir, mode=0o777, exist_ok=True )
+			os.chmod( sockdir, mode=0o777 )
+		except Exception as e:
+			print("Error: cannot create temporary file socket directory. Exiting.")
+			return -1
 		
 		# Permission level 
 		
@@ -363,92 +503,53 @@ def main(*kwargs):
 		return serv.Server( servername, _sockfile, host, port, acc, datafile )
 
 	elif cmd == STOP_SERVER:
-		if Client( (STOP_SERVER, None ), None, _sockfile, host, port ) != "1":
+		lres = []
+		Client( { "cmd": STOP_SERVER }, lres, _sockfile, host, port )
+		if lres[0] != "1":
 			if not args.no_verbose:
 				util.log.error( "cmd 'stop': Cannot contact server." )
 			return -1
 
 	elif cmd == RESTART_SERVER:
-		resAcc = Client( ( REPORT, [ACCESS] ), None, _sockfile, host, port )
-		resDf = Client( ( REPORT, [DATAFILE] ), None, _sockfile, host, port )
-		if Client( ( STOP_SERVER, None ), None, _sockfile, host, port ) != "1":
+		lresAcc = lresDf = lres = []
+		
+		Client( { "cmd": REPORT, "params":[ACCESS] }, lresAcc, _sockfile, host, port )
+		Client( { "cmd": REPORT, "params":[DATAFILE] }, lresDf, _sockfile, host, port )
+		Client( { "cmd": STOP_SERVER }, lres, _sockfile, host, port )
+		if lres[0] != "1":
 			log.error( "cmd 'restart': Cannot contact server." )
 			return -1
 		
-		if resAcc[0] != '1':
+		if lresAcc[0] != '1':
 			print( "Error: Could not get the permission level of the current server instance.",
 				"Server has been stopped and not restarted.")
 			return -1  
-		if resDf[0] != '1':
+		if lresDf[0] != '1':
 			print( "Error: Could not get the data file name of the current server instance.",
 				"Server has been stopped and not restarted.")
 			return -1  
 
 		time.sleep( 3 )
 
-		return serv.Server( servername, _sockfile, host, port, int(resAcc[1]), resDf[1] )
+		return serv.Server( servername, _sockfile, host, port, int(lresAcc[1]), lresDf[1] )
 		
-	elif cmd not in defs.local_cmds and not ( cmd in defs.nonlocal_cmds and not args.server_side ):
-		
-		if cmd == LOAD_FILE and not args.server_side:
-			files = []	
-			for fname in args.params:
-				if not os.path.exists( fname ):
-					print( "File not found: ", fname )
-					return -1
-				with open(fname) as f:
-					files.append( f.read() )
-					
-			args.params = files
-			cmdoptions.append((FROM_PARS, None))
-			
-		elif cmd == COPY_FILE:
-			if len( args.params ) != 2 or \
-				len( args.params[0]) == 0 or len( args.params[1]) == 0:
-				print("'cp' command requires two parameters.")
-				return 1
-			src = args.params[0]
-			dst = args.params[1]
-			writeFile = None
-			if src[0] == ':':
-				if args.server_side:
-					print("Destination file cannot be on server side.")
-					return 1
-				else:
-					writeFile = dst
-			if dst[0] == ':' and not args.server_side:
-				if not os.path.exists(src):
-					print("File not found: ", src)
-					return 1
-				with open(src) as f:
-					args.params[0] = f.read()
-				
-				cmdoptions.append((FROM_PARS, None))			
-			
-		util.removeOptions(cmdoptions, SERVER_SIDE)
-		
-		if not cmdoptions:
-			cmdoptions = None
-				
-		res = Client( (cmd, args.params ), cmdoptions, _sockfile, host, port )
+	elif isServerCmd( cmdoptions ):
+		lres=[]
+		res = doServerCmd( cmdoptions, lres, _sockfile, host, port )
+		if res:
+			return res
 		
 		# Postprocessing
 		
-		if res[0] != '1':
-			if res[0] != '0':
-				print( "0", res )
+		if lres[0] != '1':
+			if lres[0] != '0':
+				print( "0 ", lres[1] )
 			else:
-				print( res )
+				print( lres[1] )
 			return -1
-		if cmd == COPY_FILE:
-			if writeFile:
-				try:
-					with open(writeFile, "w") as f:
-						f.write(res[1:])
-				except:
-					print("0Error: Failed storing query result to file '{0}'".format(writeFile))
-					return -1
-		print( res )
+
+		for l in lres:
+			print( l )
 		
 	# Local commands
 	
