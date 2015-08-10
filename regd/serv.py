@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-10 23:07:47"
+__lastedited__="2015-08-11 02:16:42"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -34,6 +34,8 @@ class RegdServer:
 		self.acc = acc
 		self.datafile = datafile
 		self.data_fd = None
+		self.sock = None
+		self.disposed = False
 		
 		self.stat = {}
 		self.stat["general"]={}
@@ -116,6 +118,7 @@ class RegdServer:
 				raise ISException(operationFailed)
 			
 		def signal_handler( signal, frame ):
+			self.sock.close()
 			self.close()
 			sys.exit( 1 )
 			
@@ -123,12 +126,15 @@ class RegdServer:
 		sigHandler.push(signal.SIGTERM, signal_handler)
 		sigHandler.push(signal.SIGHUP, signal_handler)
 		sigHandler.push(signal.SIGABRT, signal_handler)
+		sigHandler.push(signal.SIGALRM, signal_handler)
 		
 	def __del__(self):
-		self.close()
+		if not self.disposed:
+			self.close()
 		
 	def close(self):
-		if os.path.exists(self.sockfile):
+		self.disposed = True
+		if os.path.exists( self.sockfile ):
 			log.info("Signal is received. Unlinking socket file...")
 			os.unlink( self.sockfile )
 		if self.data_fd:
@@ -185,24 +191,24 @@ class RegdServer:
 		self.timestarted = datetime.datetime.now()
 		try:
 			if self.host:
-				sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
-				sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
-				sock.bind( ( self.host, int(self.port) ) )
+				self.sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+				self.sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
+				self.sock.bind( ( self.host, int(self.port) ) )
 				with open( self.sockfile, "w" ) as f:
 					f.write('')
 				
 			else:
-				sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
-				sock.bind( self.sockfile )
+				self.sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
+				self.sock.bind( self.sockfile )
 				os.chmod( self.sockfile, mode=0o777 )
 				
 		except OSError as e:
 			log.error( "Cannot create or bind socket: %s" % (e) )
 			return -1
 		
-		sock.settimeout( 30 )
-		sock.listen( 1 )
-		self.loop(sock)
+		self.sock.settimeout( 30 )
+		self.sock.listen( 1 )
+		self.loop( self.sock )
 	
 	def loop(self, sock):
 		self.cont = True
@@ -218,6 +224,9 @@ class RegdServer:
 					self.exitcode = 1
 				else:
 					continue
+			except Exception as e:
+				print( "Exception occured: ", e)
+				self.cont = False
 				
 			if not self.cont:
 				log.info("Server exiting.")
@@ -570,9 +579,10 @@ class RegdServer:
 			log.info( "Stopping server." )
 			if self.sockfile:
 				os.unlink( self.sockfile )
-			return False
+			self.cont = False
+			signal.alarm(1)
 		
-		return True
+		return
 			
 	def prepareStat(self):
 		ret = ""
