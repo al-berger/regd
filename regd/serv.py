@@ -10,15 +10,15 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-30 15:54:21"
+__lastedited__="2015-08-08 07:26:31"
 
-import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
+import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
 import fcntl  # @UnresolvedImport
 import regd.util as util, regd.defs as defs
 from regd.util import log, ISException, permissionDenied, persistentNotEnabled, valueNotExists,\
 	operationFailed, sigHandler, unrecognizedParameter,\
-	unrecognizedSyntax, composeResponse, objectNotExists
+	unrecognizedSyntax, composeResponse, objectNotExists, unknownDataFormat
 from regd.stor import EnumMode, read_locked, write_locked, get_token,\
 	read_sec_file, remove_section, remove_token, getstor
 import regd.stor as stor
@@ -190,34 +190,59 @@ class RegdServer:
 		except OSError as e:
 			log.error( "Cannot create or bind socket: %s" % (e) )
 			return -1
-	
+		
+		sock.settimeout( 30 )
 		sock.listen( 1 )
 		self.loop(sock)
 	
-
 	def loop(self, sock):
+		self.cont = True
+		self.exitcode = 0
+		
 		while True:
-			connection, client_address = sock.accept()
-			cont=True
 			try:
-				cont = self.handle_connection(connection, client_address)
-			except ISException as e:
-				log.error( ( "Exception while handling connection. Continuing loop." 
-							"Client: %s ; Exception: %s") % (client_address, e))				
-			except Exception as e:
-				log.error("Exception in server loop. Exiting. %s" % (e))
-				sys.exit(-1)
-			finally:
+				connection, client_address = sock.accept()
+			except socket.timeout:
+				if not os.path.exists( self.sockfile ):
+					log.error("Socket file is gone. Exiting.")
+					self.cont = False
+					self.exitcode = 1
+				else:
+					continue
+				
+			if not self.cont:
+				log.info("Server exiting.")
 				connection.shutdown( socket.SHUT_RDWR )
 				connection.close()
-			if not cont:
-				log.info("Server exiting.")
 				if self.data_fd:
 					log.info("Unlocking data file.")
 					fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
-				sys.exit( 0 )		
+				sys.exit( self.exitcode )
+											
+			threading.Thread( target=self.handle_connection, name="handle_connection", 
+								args=(connection, client_address) ).start()
+	
 		
-	def handle_connection(self, connection, client_address):	
+	def handle_connection(self, *args):
+		connection = args[0] 
+		client_address = args[1]			
+		try:
+			self._handle_connection(connection, client_address)
+		except ISException as e:
+			log.error( ( "Exception while handling connection. Continuing loop." 
+						"Client: %s ; Exception: %s") % (client_address, e))
+
+		except Exception as e:
+			log.error("Exception in server loop. Exiting. %s" % (e))
+			self.cont = False
+			self.exitcode = -1
+			
+		finally:
+			connection.shutdown( socket.SHUT_RDWR )
+			connection.close()
+
+						
+	def _handle_connection(self, connection, client_address):
 		if not self.host:
 			creds = connection.getsockopt( socket.SOL_SOCKET, socket.SO_PEERCRED, 
 									struct.calcsize("3i"))
@@ -294,8 +319,8 @@ class RegdServer:
 			if len( cmdData ) > 1:
 				spar = cmdData[1] 
 				
-			swPers, swTree, swForce, swFromPars = util.getSwitches( cmdOptions, 
-												PERS, TREE, FORCE, FROM_PARS )
+			swPers, swTree, swForce, swFromPars, swRecur = util.getSwitches( cmdOptions, 
+												PERS, TREE, FORCE, FROM_PARS, RECURS )
 			optDest, optBinary = util.getOptions( cmdOptions, DEST, BINARY)
 			
 			optmap = util.getOptionMap( cmdOptions )
@@ -359,12 +384,15 @@ class RegdServer:
 					composeResponse( bresp, '1', util.getLog(n) )
 					
 				elif cmd == LIST:
+					swNovals = NOVALUES in optmap
 					lres = []
 					if not cmdData:
-						self.fs.listItems( lres, swTree, 0, False)
+						self.fs.listItems( lres=lres, bTree=swTree, nIndent=0, bNovals=swNovals,
+										relPath=None, bRecur=swRecur)
 					else:
 						sect = self.fs.getSectionFromStr(fpar)
-						sect.listItems(lres, swTree, 0, False)
+						sect.listItems(lres=lres, bTree=swTree, nIndent=0, bNovals=swNovals,
+									relPath=None, bRecur=swRecur)
 					
 					#composeResponse( bresp, '1', "\n".join(lres) )
 					composeResponse( bresp, '1', lres )
@@ -386,20 +414,27 @@ class RegdServer:
 																					DEST, PERS))
 						dest = stor.PERSPATH
 					if FORCE in optmap:
-						noOverwrite = True
-						
-					# Without --dest or --pers options tokens are always added to /ses
-					if not dest:
-						dest = stor.SESPATH
-						
+						noOverwrite = False
+												
 					if cmd == ADD_TOKEN:
 						log.debug("dest: {0} .".format( dest ) )
-							
+						cnt = 0
 						for tok in cmdData:
+							# Without --dest or --pers options tokens are always added to /ses
+							if not dest and not self.fs.isPathValid( tok ):
+								dest = stor.SESPATH
+								
+							binaryVal = None
+							if defs.BINARY in optmap:
+								if not optmap[defs.BINARY] or len(optmap[defs.BINARY]) < cnt+1:
+									raise ISException( unknownDataFormat, tok )
+								binaryVal = optmap[defs.BINARY][cnt]
+								cnt += 1
+								
 							if dest:
-								self.fs.addTokenToDest(dest, tok, noOverwrite )
+								self.fs.addTokenToDest(dest, tok, noOverwrite, binaryVal )
 							else:
-								self.fs.addToken( tok, noOverwrite )
+								self.fs.addToken( tok, noOverwrite, binaryVal )
 						
 						if dest and dest.startswith(stor.PERSPATH):
 							write_locked( self.data_fd, self.perstokens )
@@ -413,7 +448,7 @@ class RegdServer:
 						if not swFromPars:
 							for filename in cmdData:
 								if os.path.exists( filename ):
-									stor.read_tokens_from_file(filename, tok, dest, noOverwrite)
+									stor.read_tokens_from_file(filename, tok, noOverwrite)
 								else:
 									raise ISException( objectNotExists, filename, "File not found")
 						else:
@@ -445,8 +480,8 @@ class RegdServer:
 							
 						composeResponse( bresp, '1', ret )
 				
-				elif cmd in ( GET_TOKEN, REMOVE_TOKEN, REMOVE_SECTION):
-					if not self.fs.isPathValid( fpar ):
+				elif cmd in ( GET_TOKEN, REMOVE_TOKEN, CREATE_SECTION, REMOVE_SECTION, RENAME ):
+					if fpar[0] != '/' or not self.fs.isPathValid( fpar ):
 						fpar = "{0}/{1}".format(stor.PERSPATH if swPers else stor.SESPATH, fpar)
 					elif stor.isPathPers(fpar):
 						swPers = True
@@ -455,18 +490,20 @@ class RegdServer:
 												
 					if cmd == GET_TOKEN:
 						composeResponse( bresp, '1', self.fs.getTokenVal(fpar) )
-		
-					elif cmd == REMOVE_TOKEN:
-						self.fs.removeToken(fpar)
+						log.debug( "response: {0} ".format(bresp) )
+					else:		
+						if cmd == REMOVE_TOKEN:
+							self.fs.removeToken(fpar)
+						elif cmd == CREATE_SECTION:
+							self.fs.createSection( fpar )			
+						elif cmd == REMOVE_SECTION:
+							self.fs.removeSection(fpar)
+						elif cmd == RENAME:
+							self.fs.rename(fpar, spar)
+						
 						if swPers:
 							stor.write_locked(self.data_fd, self.perstokens)
-						composeResponse( bresp )
-		
-					elif cmd == REMOVE_SECTION:
-						self.fs.removeSection(fpar)
-						if swPers:
-							stor.write_locked(self.data_fd, self.perstokens)
-						composeResponse( bresp )
+							composeResponse( bresp )
 						
 				elif cmd == LOAD_FILE_SEC:
 					if not fpar:

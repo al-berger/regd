@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-30 20:13:57"
+__lastedited__="2015-08-07 21:11:57"
 
 import sys, os, pwd, logging, signal, re
 import configparser
@@ -286,7 +286,12 @@ def createPacket( cpars : 'in map', bpack : 'out bytearray' ):
 		if v and not(v is True):
 			bpack.extend( (str(len(v)) + ' ' ).encode('utf-8'))
 			for par in v:
-				b = bytearray( v, encoding='utf-8')
+				if type( par ) is str:
+					b = bytearray( par, encoding='utf-8')
+				elif type( par ) is bytearray or type( par ) is bytes:
+					b = par
+				else:
+					raise ISException( unknownDataFormat, par )
 				bpack.extend( (str(len(b)) + ' ' ).encode('utf-8') )
 				bpack.extend( b )
 		else:
@@ -348,7 +353,7 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 				param = data[:paramlen]
 				data = data[paramlen+1:]
 				if word == "binary":
-					params.append( bytes( param) )
+					params.append( bytes( param ) )
 				else:
 					params.append( param.decode('utf-8' ))				
 			
@@ -380,17 +385,21 @@ def composeResponse(bpack : 'out bytearray', code='1', *args):
 	simple structure: each object contains the number of items it composed of, the items
 	themselves and the type of each item: ODC or object.
 	Format of an object: <ITEMTYPE> <NUMITEMS | ITEMSIZE> <ITEM> 
-	args argument can contain strings, bytearrays, None, lists and dictionaries, with the 
-	latter two also containing these five types.
+	args argument can contain ints, floats, strings, bytearrays, None, lists and dictionaries, 
+	with the latter two also containing these types.
 	'''
 	def packObject( ob ):
 		if ob is None:
 			bpack.extend( ('N').encode('utf-8') )
-		if type(ob) is str:
-			ba = bytearray( ob, encoding='utf-8')
-			bpack.extend( ('S' + str(len(ba)) + ' ').encode('utf-8') )
-			bpack.extend( ba )
-		elif type(ob) is bytearray:
+		if type( ob ) is int:
+			ba = bytearray( str(ob), encoding='utf-8')
+			bpack.extend( ('I' + str(len(ba)) + ' ').encode('utf-8') )
+			bpack.extend( ba )			
+		elif type( ob ) is float:
+			ba = bytearray( str(ob), encoding='utf-8')
+			bpack.extend( ('F' + str(len(ba)) + ' ').encode('utf-8') )
+			bpack.extend( ba )			
+		elif type( ob ) is bytearray or type( ob ) is bytes:
 			bpack.extend( ('B' + str(len(ob)) + ' ').encode('utf-8') )
 			bpack.extend( ob )
 		elif type( ob ) is list:
@@ -399,22 +408,24 @@ def composeResponse(bpack : 'out bytearray', code='1', *args):
 				packObject(item)
 		elif type( ob ) is dict:
 			bpack.extend( ( 'D' + str(len(ob) * 2 ) + ' ').encode('utf-8') )
-			for k,v in ob:
+			for k,v in ob.items():
 				packObject(k)
 				packObject(v)				
+		else: 
+			ba = bytearray( str(ob), encoding='utf-8')
+			bpack.extend( ('S' + str(len(ba)) + ' ').encode('utf-8') )
+			bpack.extend( ba )
 	
 	bpack.extend( (code + ' ').encode('utf-8') )
-	if args == None:
+	if not args:
 		return packObject(None)
 	
-	bpack.extend( ( 'L' + str(len(args) ) ).encode('utf-8') )
-	if len( args ):
+	if len( args ) > 1:
+		bpack.extend( ( 'L' + str(len(args) ) ).encode('utf-8') )
 		bpack.extend( b' ' )
 	for item in args:
 		packObject( item )
 	
-	
-
 def parseResponse( 	resp : "byte array with server response",
 					lres : "result list"):
 	'''Function for parsing regd server response.'''
@@ -424,31 +435,43 @@ def parseResponse( 	resp : "byte array with server response",
 		ot = hdr[0:1].decode('utf-8') # object type
 		_data[0] = data
 		if ot == 'N':
+			seqout.append( None )
 			return
 		sz = int(hdr[1:]) # object size / number of items
-		if ot == 'B':
+		if ot == 'I':
+			arr = data[:sz]
+			data = data[sz:]
+			seqout.append(int(arr.decode('utf-8')))
+			_data[0] = data
+		elif ot == 'F':
+			arr = data[:sz]
+			data = data[sz:]
+			seqout.append(float(arr.decode('utf-8')))
+			_data[0] = data					
+		elif ot == 'B':
 			arr = data[:sz]
 			data = data[sz:]
 			seqout.append(arr)
+			_data[0] = data
 		elif ot == 'S':
 			arr = data[:sz]
 			data = data[sz:]
 			seqout.append(arr.decode('utf-8'))
+			_data[0] = data
 		elif ot == 'L':
 			l = []
-			seqout.append( l )
+			#seqout.append( l )
 			for _ in range(0, sz):
 				unpackObject( _data, l )
 			if len( l ) == 1:
-				s = seqout.pop()[0]
-				seqout.append( s )
-			elif not l:
-				seqout.pop()
+				seqout.append( l[0] )
+			elif len( l ) > 1:
+				seqout.append( l )
 					
 		elif ot == 'D':
 			m = {}
 			seqout.append( m )
-			for _ in range(0, sz):
+			for _ in range(0, int(sz/2)):
 				l = []
 				unpackObject( _data, l )
 				if len( l ) > 1:
@@ -461,10 +484,7 @@ def parseResponse( 	resp : "byte array with server response",
 					v = l[0]
 				else:
 					v = l
-				m[k] = [v]
-		
-		_data[0] = data
-				
+				m[k] = v				
 	
 	res, _, data = resp.partition( b' ' )
 	if not data:
@@ -558,4 +578,18 @@ def checkHostAddr( host, port ):
 	if int( port ) > 65536:
 		return( "The number must be no greater than 65536." )
 	
+def printObject( ob, ind=0, endl='\n'):
+	if type( ob ) is list:
+		for o in ob:
+			printObject( o, ind, endl )
+	elif type( ob ) is dict:
+		for k,v in ob.items():
+			printObject(k, ind, " : ")
+			printObject( v, 0 )
+	elif type( ob ) is str:
+		print( "{0}{1}".format( " " * ind, ob), end=endl)
+	else:
+		print( " " * ind, str( ob ), end='')
+			
+			
 					

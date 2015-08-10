@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-30 17:13:37"
+__lastedited__ = "2015-08-06 13:44:46"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -84,12 +84,10 @@ def connectToServer( sockfile=None, host=None, port=None, tmout=3 ):
 	return sock	
 
 def checkConnection(sockfile=None, host=None, port=None):
-	lres = [] 
-	Client((defs.CHECK_SERVER, None), None, lres, sockfile, host, port )
+	return Client( { "cmd": defs.CHECK_SERVER }, sockfile, host, port )[0]
 	
-	return (lres[0] == '1')
 	
-def Client( cpars, lres, sockfile=None, host=None, port=None ):
+def Client( cpars, sockfile=None, host=None, port=None ):
 	'''
 	"Client" function. Performs requests to a running server.
 	'''
@@ -114,73 +112,20 @@ def Client( cpars, lres, sockfile=None, host=None, port=None ):
 			util.sendPack(sock, bpack)
 			util.recvPack(sock, data)
 		except ISException as e:
-			lres.extend(["0", str(e)])
-			return
+			return False, [str(e)]
 			
 		util.logcomm.debug("received packet: {0}".format(data))
 
 		sock.shutdown( socket.SHUT_RDWR )
 		sock.close()
-
+		lres = []
 		util.parseResponse( data[10:], lres )
+		util.logcomm.debug("parsed packet: {0}".format( lres ))
+		return ( lres[0]=='1', lres[1] if len( lres ) == 2 else lres[1:] )
 	except OSError as er:
-		lres = ["0", "regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
+		return False, ["regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
 												er.errno, er.strerror, sockfile, host, port )]
 
-def regdcmd( cmd = None, data = None, addr=None, servername = None, host = None, port = None, 
-			opt=None, lres=None ):
-	'''Adapter for the Client() for using from other packages.'''
-	sockfile = None
-	if addr:
-		if addr.find(":") != -1:
-			host, port = addr.partition(":")
-		else:
-			servername = addr
-			
-	if not host:
-		try:
-			atuser, servername = util.parse_server_name( servername )
-		except ISException as e:
-			print( e )
-			return e.code
-		
-		if not servername:
-			servername = "regd"
-	
-		_, sockfile = util.get_filesock_addr( atuser, servername )
-	
-	if lres is None:
-		lres = []
-		retl = False
-	else:
-		retl = True
-		
-	copts = {}
-	copts["cmd"] = cmd
-	copts["params"] = data
-	if opt:
-		for op in opt:
-			copts[op[0]] = op[1]
-		
-	res = doServerCmd( copts, lres, sockfile, host, port)
-		
-	if res or lres[0] != '1':
-		res = False
-	else:
-		res = True
-		
-	if not retl:
-		data = "".join(lres)
-		
-		if len(data) == 2 and ( type(data[1]) is str or type(data[1]) is bytes ):
-			ret = data[1]
-		else:
-			ret = data[1:]
-	else:
-		ret = None
-		lres = lres[1:]
-		
-	return res, ret
 
 def isServerCmd( cpars ):
 	cmd = cpars.get("cmd", None)
@@ -190,7 +135,7 @@ def isServerCmd( cpars ):
 		return True
 	return False
 
-def doServerCmd( copts, lres, sockfile, host, port ):
+def doServerCmd( copts, sockfile, host, port ):
 	'''Calls Client() with some pre- and postprocessing.'''
 	
 	if copts["cmd"] == LOAD_FILE and not copts.get("server_side", None):
@@ -233,22 +178,21 @@ def doServerCmd( copts, lres, sockfile, host, port ):
 	if not copts:
 		copts = None
 	
-	Client( copts, lres, sockfile, host, port )
+	res, ret = Client( copts, sockfile, host, port )
 	
 	# Postprocessing
 	
-	if lres[0] == '1':
-	
+	if res:	
 		if copts["cmd"] == COPY_FILE:
 			if writeFile:
 				try:
 					with open( writeFile, "w") as f:
-						f.write(lres[1:])
+						f.write( ret )
 				except:
 					print("0Error: Failed storing query result to file '{0}'".format(writeFile))
 					return -1
 				
-	return 0
+	return res, ret
 
 def main(*kwargs):
 	global log
@@ -284,7 +228,7 @@ def main(*kwargs):
 		def __call__( self, parser, namespace, values=None, option_string = None ):
 			if values:
 				raise ValueError("Command switch cannot have values")
-			cmdoptions[declc(self.dest)].append( None )
+			cmdoptions[declc(self.dest)] = True
 
 	parser = argparse.ArgumentParser( 
 		description = 'regd : Data cache server.'
@@ -306,11 +250,12 @@ def main(*kwargs):
 
 	# Command options
 	parser.add_argument( clp( DEST ), "-d", action = CmdParam, help = "The name of the section into which tokens must be added.")
-	parser.add_argument( clp( TREE ), action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format.")
+	parser.add_argument( clp( TREE ), "-t", action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format.")
 	parser.add_argument( clp( PERS ), action = CmdSwitch, nargs=0, help = "Apply the command to persistent tokens.")
 	parser.add_argument( clp( FORCE ), "-f", action = CmdSwitch, nargs=0, help = "Overwrite existing token values when adding tokens.")
 	parser.add_argument( clp( SERVER_SIDE ), action="store_true", help = "Execute command on the server side (only for 'client-or-server' commands).")
 	parser.add_argument( clp( BINARY ), "-b", action = CmdParam, help = "Binary data.")
+	parser.add_argument( clp( RECURS ), "-r", action = CmdSwitch, nargs=0, help = "Apply the command recursively.")
 	
 	args = parser.parse_args(*kwargs)
 	
@@ -503,53 +448,49 @@ def main(*kwargs):
 		return serv.Server( servername, _sockfile, host, port, acc, datafile )
 
 	elif cmd == STOP_SERVER:
-		lres = []
-		Client( { "cmd": STOP_SERVER }, lres, _sockfile, host, port )
-		if lres[0] != "1":
+		res, _ = Client( { "cmd": STOP_SERVER }, _sockfile, host, port )
+		if not res:
 			if not args.no_verbose:
 				util.log.error( "cmd 'stop': Cannot contact server." )
 			return -1
 
 	elif cmd == RESTART_SERVER:
-		lresAcc = lresDf = lres = []
-		
-		Client( { "cmd": REPORT, "params":[ACCESS] }, lresAcc, _sockfile, host, port )
-		Client( { "cmd": REPORT, "params":[DATAFILE] }, lresDf, _sockfile, host, port )
-		Client( { "cmd": STOP_SERVER }, lres, _sockfile, host, port )
-		if lres[0] != "1":
+		bresAcc, retAcc = Client( { "cmd": REPORT, "params":[ACCESS] }, _sockfile, host, port )
+		bresDf, retDf = Client( { "cmd": REPORT, "params":[DATAFILE] }, _sockfile, host, port )
+		bres, _ = Client( { "cmd": STOP_SERVER }, _sockfile, host, port )
+		if not bres:
 			log.error( "cmd 'restart': Cannot contact server." )
 			return -1
 		
-		if lresAcc[0] != '1':
+		if not bresAcc:
 			print( "Error: Could not get the permission level of the current server instance.",
 				"Server has been stopped and not restarted.")
 			return -1  
-		if lresDf[0] != '1':
+		if not bresDf:
 			print( "Error: Could not get the data file name of the current server instance.",
 				"Server has been stopped and not restarted.")
 			return -1  
 
 		time.sleep( 3 )
 
-		return serv.Server( servername, _sockfile, host, port, int(lresAcc[1]), lresDf[1] )
+		return serv.Server( servername, _sockfile, host, port, int(retAcc), retDf )
 		
 	elif isServerCmd( cmdoptions ):
-		lres=[]
-		res = doServerCmd( cmdoptions, lres, _sockfile, host, port )
-		if res:
-			return res
-		
+		res, ret = doServerCmd( cmdoptions, _sockfile, host, port )
+				
 		# Postprocessing
 		
-		if lres[0] != '1':
-			if lres[0] != '0':
-				print( "0 ", lres[1] )
+		if not res:
+			if ret[0] != '0':
+				print( "0", ret )
 			else:
-				print( lres[1] )
+				print( ret )
 			return -1
-
-		for l in lres:
-			print( l )
+		
+		print('1')
+		util.printObject( ret )
+		#for l in lres:
+		#	print( l )
 		
 	# Local commands
 	

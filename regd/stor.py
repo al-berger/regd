@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-31 01:13:34"
+__lastedited__="2015-08-07 05:46:58"
 
 import sys, re, subprocess, tempfile, os, time
 from enum import Enum
@@ -67,14 +67,19 @@ class SItem:
 		if not attrName:
 			st_mode = (self.itype | self.st.st_mode)
 			ret = {'st_mode':st_mode, 'st_uid':self.st.st_uid, 'st_gid':self.st.st_gid,
-				'st_dev':0, 'st_rdev':0, 'st_ino':0, 'st_size':4, 'st_blksize':1,
-				'st_blocks':1 }
+				'st_dev':0, 'st_rdev':0, 'st_ino':0, 'st_size':self.getsize(), 
+				'st_blksize':2048, 'st_blocks':(int(self.getsize()/512))+1, 
+				'st_ctime':int(self.st.st_ctime), 
+				'st_atime':int(self.st.st_atime), 'st_mtime':int(self.st.st_mtime) }
 			return ret
 		
 	def setAttr(self, **kwargs):
 		for k, v in kwargs.items():
 			if k == 'st_mode':
 				self.st_mode = v
+				
+	def getsize(self):
+		pass
 				
 		
 class SVal(SItem):
@@ -85,10 +90,15 @@ class SVal(SItem):
 		return super(SVal, self).__init__( S_IFREG, mode, uid, gid, ctime, mtime, atime, nlink )
 	
 	def __str__(self):
-		if type(self.val) is bytes:
+		if type(self.val) is bytes or type(self.val) is bytearray:
 			return self.val.decode( 'utf-8' )
-		else:
+		elif type( self.val ) is str:
 			return self.val
+		else:
+			return str ( self.val )
+		
+	def getsize(self):
+		return len( self.val ) if self.val else 0
 
 class Stor(SItem, dict):
 	def __init__(self, name='', mode=None, uid=None, gid=None, ctime=None, mtime=None, atime=None,
@@ -128,7 +138,8 @@ class Stor(SItem, dict):
 					val.setPath( '' )
 			val.setName( key )
 		else:
-			val = SVal( val, self.st.st_mode, self.st.st_uid, self.st.st_gid )
+			if type( val ) != SVal:
+				val = SVal( val, 0o644, self.st.st_uid, self.st.st_gid )
 			
 		return super(Stor, self).__setitem__( key, val )
 	
@@ -177,11 +188,22 @@ class Stor(SItem, dict):
 		
 		return it
 	
+	def getsize(self):
+		return 0
+	
 	def enumerate(self, mode):
 		self.enumMode = mode
 		
 	def setPath( self, path ):
 		self.path = path
+		for v in self.values():
+			if self.path:
+				v.setPath( self.path + "/" + self.name )
+			else:
+				if self.name:
+					v.setPath( "/" + self.name )
+				else:
+					raise ISException(programError, "Storage item has no name.")
 	
 	def setName( self, name ):
 		self.name = name
@@ -193,7 +215,16 @@ class Stor(SItem, dict):
 		#	return self.name
 		
 	def isPathValid( self, path ):
-		path = self.pathName() + "/" + path
+		if not path:
+			return False
+		
+		if path[0] != '/':
+			if self.name:
+				path = self.pathName() + "/" + path
+		else:
+			# Absolute paths can only be added at the root section
+			if self.name:
+				return False			
 		
 		b = False
 		if path[0] == '/':
@@ -235,13 +266,22 @@ class Stor(SItem, dict):
 		return cnt
 	
 	def getSItemAttr( self, path, attrName=None ):
-		item = self.getToken( path )
+		item = self.getSItem( path )
 		return item.getAttr( attrName )
 	
 	def setSItemAttr( self, path, **kwargs ):
-		item = self.getToken( path )
+		item = self.getSItem( path )
 		return item.setAttr( kwargs )	
 		
+	def getSItem( self, path ):
+		if type( path ) is str:
+			if path[-1] == '/':
+				return self.getSectionFromStr(path)
+			else:
+				return self.getToken( path )
+		else:
+			return self.getSection(path)
+			
 	def getSection( self, path ):
 		if path:
 			if path[0] not in self.keys() or not isinstance( self[path[0]], baseSectType ):
@@ -270,7 +310,7 @@ class Stor(SItem, dict):
 		lpath, _, _ = parse_token( path, False, False)
 		return self.getSection(lpath)
 		
-	def createSection(self, sec):		
+	def createSection(self, sec):
 		if not self.isPathValid(sec):
 			raise ISException(unrecognizedParameter, sec, "Section name is not valid")
 		curname, _, path = sec.partition('/')
@@ -283,7 +323,16 @@ class Stor(SItem, dict):
 		else:
 			return self[curname]
 		
-	def addTokenToDest(self, dest, tok, noOverwrite=True):
+	def addSection(self, sec):
+		'''Adds a new section. 
+		sec : string with the section path or the section SItem object.'''
+		
+		if isinstance( sec, baseSectType ):
+			self[sec.name] = sec
+		else:
+			self.createSection( sec )	
+		
+	def addTokenToDest(self, dest, tok, noOverwrite=True, binaryVal=None):
 		path, _, _ = parse_token(dest, False, False)
 		try:
 			sec = self.getSection( path )
@@ -292,14 +341,18 @@ class Stor(SItem, dict):
 				sec = self.createSection( dest )
 			else:
 				raise 
-		sec.addToken( tok, noOverwrite )
+		sec.addToken( tok, noOverwrite, binaryVal )
 		
-	def addToken( self, tok, noOverwrite=True ):
-		path, nam, val = parse_token(tok)
+	def addToken( self, tok, noOverwrite=True, binaryVal=None ):
+		if not binaryVal:
+			path, nam, val = parse_token(tok)
+		else:
+			path, nam, _ = parse_token( tok, True, False )
+			val = binaryVal
 		
 		logtok.debug("[tok: {0}]:  path: {1} ; nam: {2} ; val: {3}".format( tok, path, nam, val))
 		
-		if not ( nam and val ):
+		if not nam:
 			raise ISException( unknownDataFormat, tok )
 		try:
 			sec = self.getSection( path )
@@ -330,7 +383,9 @@ class Stor(SItem, dict):
 	
 	def getTokenVal(self, tok):
 		'''Returns the token's value.'''
-		return self.getToken(tok).val
+		val = self.getToken(tok).val
+		logtok.debug( val )
+		return val #self.getToken(tok).val
 		
 	def getSVal(self, nam):
 		if nam not in self.keys():
@@ -360,12 +415,28 @@ class Stor(SItem, dict):
 		cont = self.getSection(path)
 		cont.deleteNam( nam )
 		
-	def listItems( self, res, bTree=False, nIndent=0, bNovals=True, relPath=None ):
+	def copy(self, src, dst, noOverwrite=True ):
+		sitem = self.getSItem( src )
+		if isinstance( sitem, baseSectType ):
+			return self.addSection(sitem)
+		elif isinstance(sitem, baseValType):
+			return self.addToken(sitem, noOverwrite )
+		
+	def rename(self, src, dst):
+		self.copy(src, dst)
+		sitem = self.getSItem(src)
+		if isinstance( sitem, baseSectType ):
+			return self.removeSection(sitem)
+		elif isinstance(sitem, baseValType):
+			return self.removeToken(sitem )
+		
+	def listItems( self, lres, bTree=False, nIndent=0, bNovals=True, relPath=None, bRecur=True ):
 		'''This function with btree=False, bNovals=False is used also for writing
 		persistent tokens.'''
-		if res == None:
+		if lres == None:
 			return
-		pathPrinted = False
+		
+		pathPrinted = False if bRecur else True
 		
 		if bTree:
 			# First listing tokens
@@ -375,14 +446,16 @@ class Stor(SItem, dict):
 						line = "{0}- {1}".format(' ' * nIndent, nam )
 					else:
 						line = "{0}- {1}  : {2}".format( ' ' * nIndent, nam, val )
-					res.append( line )
+					lres.append( line )
 					
 			# Then sections				
 			for nam, val in self.items():
 				if type(val) == type(self):
 					line = "{0}[{1}]:".format(' ' * nIndent, nam )
-					res.append( line )
-					val.listItems( res, bTree, nIndent + 4, bNovals )
+					lres.append( line )
+					if bRecur:
+						val.listItems( lres=lres, bTree=bTree, nIndent=nIndent + 4, 
+									bNovals=bNovals, relPath=relPath, bRecur=bRecur )
 					
 		else:
 			if relPath != None:
@@ -396,12 +469,12 @@ class Stor(SItem, dict):
 			for nam, val in self.items():
 				if type(val) != type(self):
 					if not pathPrinted:
-						res.append("")
+						lres.append("")
 						if relPath:
 							if relPath != '.':
-								res.append( "[" + relPath + "]")
+								lres.append( "[" + relPath + "]")
 						else:
-							res.append( "[" + self.pathName() + "]")
+							lres.append( "[" + self.pathName() + "]")
 						pathPrinted = True
 					
 					if bNovals:
@@ -409,11 +482,15 @@ class Stor(SItem, dict):
 					else:
 						nam = nam.replace("=", "\\=")
 						line = "{0} = {1}".format( nam, val )
-					res.append( line )
+					lres.append( line )
 			#res.append("")
 			for nam, val in self.items():
 				if type(val) == type(self):
-					val.listItems( res, bTree, 0, bNovals, relPath )
+					if bRecur:
+						val.listItems( lres, bTree, 0, bNovals, relPath, bRecur )
+					else:
+						lres.append( "[" + val.name + "]")
+				
 	
 	def getTokensList( self, lres ):
 		for n, v in self.items():
@@ -447,8 +524,8 @@ class Stor(SItem, dict):
 			m['avg_value_length'] = round( m['avg_value_length'] / m['num_of_tokens'], 2 )
 		return m
 		
-def getstor(name=''):
-	return Stor(name)
+def getstor(name='', mode=0o755, gid=None, uid=None):
+	return Stor(name=name, mode=mode, gid=gid, uid=uid)
 
 def isPathPers(path):
 	if path.startswith( PERSPATH ):
@@ -557,7 +634,8 @@ def write_locked( fd, tok ):
 	try:
 		fp = tempfile.TemporaryFile("w+", encoding='utf-8')
 		lres = []
-		tok.listItems( lres, False, 0, False, "" )
+		tok.listItems( lres=lres, bTree=False, nIndent=0, bNovals=False, relPath="",
+					bRecur=True )
 		for ln in lres:
 			ln = ln.replace('\n', '\n\t')
 			fp.write( ln + "\n")
