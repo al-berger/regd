@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-08 07:26:31"
+__lastedited__="2015-08-10 23:07:47"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -116,17 +116,23 @@ class RegdServer:
 				raise ISException(operationFailed)
 			
 		def signal_handler( signal, frame ):
-			if os.path.exists(sockfile):
-				log.info("Signal is received. Unlinking socket file...")
-				os.unlink( sockfile )
-			if self.data_fd:
-				fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
+			self.close()
 			sys.exit( 1 )
 			
 		sigHandler.push(signal.SIGINT, signal_handler)
 		sigHandler.push(signal.SIGTERM, signal_handler)
 		sigHandler.push(signal.SIGHUP, signal_handler)
 		sigHandler.push(signal.SIGABRT, signal_handler)
+		
+	def __del__(self):
+		self.close()
+		
+	def close(self):
+		if os.path.exists(self.sockfile):
+			log.info("Signal is received. Unlinking socket file...")
+			os.unlink( self.sockfile )
+		if self.data_fd:
+			fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
 		
 	def start_loop(self):
 		
@@ -182,6 +188,9 @@ class RegdServer:
 				sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
 				sock.setsockopt( socket.SOL_SOCKET, socket.SO_REUSEADDR, 1 )
 				sock.bind( ( self.host, int(self.port) ) )
+				with open( self.sockfile, "w" ) as f:
+					f.write('')
+				
 			else:
 				sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
 				sock.bind( self.sockfile )
