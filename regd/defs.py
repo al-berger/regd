@@ -10,9 +10,9 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-31 00:09:16"
+__lastedited__="2015-08-10 16:32:07"
 
-VERSION = ( 0, 6, 'pre', 20 )
+VERSION = ( 0, 6, 'pre', 21 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -53,8 +53,11 @@ GET_TOKEN 			= "get"
 GET_TOKEN_SEC		= "get_sec"
 REMOVE_TOKEN		= "rm"
 REMOVE_TOKEN_SEC	= "remove_sec"
-REMOVE_SECTION		= "rmsect"
-REMOVE_SECTION_SEC	= "remove_section_sec"
+CREATE_SECTION		= "mkdir"
+CREATE_SECTION_SEC	= "mkdir_sec"
+REMOVE_SECTION		= "rmdir"
+REMOVE_SECTION_SEC	= "rmdir_sec"
+RENAME				= "mv"
 CLEAR_SEC			= "clear_sec"
 CLEAR_SESSION		= "clear_session"
 SHOW_LOG			= "show_log"
@@ -76,11 +79,13 @@ SESSION				= "session"
 PERS				= "pers"
 ALL					= "all"
 TREE				= "tree"
+NOVALUES			= "no_values"
 FORCE				= "force"
 SERVER_SIDE			= "server_side"
 FROM_PARS			= "from_pars"
 ATTR				= "attr"
 BINARY				= "binary"
+RECURS				= "recursively"
 
 # Report ("what") options
 ACCESS 				= "access"
@@ -102,5 +107,6 @@ pers_opts = (PERS)
 local_cmds = (TEST_START, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END)
 # For executing these commands on server they must come with --server-side switch 
 nonlocal_cmds = (SHOW_LOG, VERS)
-cmd_opts = ( DEST, SESSION, PERS, ALL, TREE, FORCE, SERVER_SIDE, FROM_PARS, ATTR, BINARY )
+cmd_opts = ( DEST, SESSION, PERS, ALL, TREE, NOVALUES, FORCE, SERVER_SIDE, FROM_PARS, ATTR, 
+			BINARY, RECURS )
 rep_opts = (ACCESS, STAT, DATAFILE)
