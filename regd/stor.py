@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-07 05:46:58"
+__lastedited__="2015-08-15 08:57:07"
 
 import sys, re, subprocess, tempfile, os, time
 from enum import Enum
@@ -312,12 +312,17 @@ class Stor(SItem, dict):
 		
 	def createSection(self, sec):
 		if not self.isPathValid(sec):
-			raise ISException(unrecognizedParameter, sec, "Section name is not valid")
+			raise ISException(unrecognizedParameter, sec, "Section name is not valid.")
 		curname, _, path = sec.partition('/')
 		if not curname and self.name:
-			raise ISException(unrecognizedParameter, sec, "Section name is not valid")
-		if self.name and curname not in self.keys():
-			self[curname] = getstor()
+			raise ISException(unrecognizedParameter, sec, "Section name is not valid.")
+		
+		if curname not in self.keys():
+			if self.name:
+				self[curname] = getstor()
+			else:
+				raise ISException(unrecognizedParameter, sec, "Section doesn't exist.")
+		
 		if path:
 			return self[curname].createSection(path)
 		else:
@@ -389,7 +394,7 @@ class Stor(SItem, dict):
 		
 	def getSVal(self, nam):
 		if nam not in self.keys():
-			raise ISException(valueNotExists, nam)
+			raise ISException( objectNotExists, nam )
 		return self.get( nam )			
 		
 	def removeToken(self, tok):
