@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-11 02:16:42"
+__lastedited__="2015-08-19 05:22:09"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -142,7 +142,7 @@ class RegdServer:
 		
 	def start_loop(self):
 		
-		if self.sockfile and os.path.exists( self.sockfile ):
+		if not self.host and os.path.exists( self.sockfile ):
 			log.info("Socket file for a server with name already exists. Checking for the server process.")
 			'''Socket file may remain after an unclean exit. Check if another server is running.'''
 			try:
@@ -279,10 +279,14 @@ class RegdServer:
 
 		cmdOptions=[]
 		cmdData=[]
-		cmd = util.parsePacket(data, cmdOptions, cmdData)
+		bresp = bytearray()
+		try:
+			cmd = util.parsePacket(data, cmdOptions, cmdData)
+			log.debug( "command received: {0} {1}".format( cmd, cmdData ) )
+			log.debug( "command options: {0}".format( cmdOptions ) )
+		except Exception as e:
+			composeResponse(bresp, "0", str(e))
 			
-		log.debug( "command received: {0} {1}".format( cmd, cmdData ) )
-		log.debug( "command options: {0}".format( cmdOptions ) )
 
 		# Three response classes:
 		# 0 - program error
@@ -323,10 +327,10 @@ class RegdServer:
 						perm = True 
 		log.debug("perm: {0}".format( perm ) )
 		if not perm:
-			resp = str( ISException( permissionDenied, cmd ) )
+			composeResponse(bresp, "0", str( ISException( permissionDenied, cmd ) ) )
 		elif not self.data_fd and util.getSwitches(cmdOptions, PERS)[0]:
-			resp = str( ISException(persistentNotEnabled))
-		else:
+			composeResponse(bresp, "0", str( ISException(persistentNotEnabled) ) )
+		elif not len(bresp):
 			self.mcmd[cmd] = 1 if cmd not in self.mcmd else self.mcmd[cmd]+1
 			
 			# -------------- Command handling -----------------
@@ -345,7 +349,6 @@ class RegdServer:
 			
 			log.debug("fpar: {0} ; spar: {1}".format( fpar, spar ) )
 			
-			bresp = bytearray()
 			retCode = '0'
 				
 			try:
@@ -378,6 +381,16 @@ class RegdServer:
 							resp = "Unrecognized command syntax."
 							
 					composeResponse(bresp, retCode, resp ) 
+					
+				elif cmd == IF_PATH_EXISTS:
+					try:
+						self.fs.getSItem( fpar )
+						composeResponse( bresp )
+					except ISException as e:
+						if e.code == objectNotExists:
+							composeResponse( bresp, "0" )
+						else:
+							raise 						
 							
 				elif cmd == GETATTR:
 					'''Query for attributes of a storage item.
@@ -421,10 +434,10 @@ class RegdServer:
 					if not fpar:
 						raise ISException(unrecognizedSyntax, moreInfo="No items specified.")
 					if DEST in optmap:
-						if not optmap[DEST] or not self.fs.isPathValid(optmap[DEST]):
+						if not len(optmap[DEST]) or not self.fs.isPathValid(optmap[DEST][0]):
 							raise ISException(unrecognizedParameter, 
 									moreInfo="Parameter '{0}' must contain a valid section name.".format(DEST))
-							dest = optmap[DEST]
+						dest = optmap[DEST][0]
 					if PERS in optmap:
 						if dest:
 							raise ISException(unrecognizedSyntax, 
@@ -433,15 +446,15 @@ class RegdServer:
 						dest = stor.PERSPATH
 					if FORCE in optmap:
 						noOverwrite = False
-												
+
 					if cmd == ADD_TOKEN:
 						log.debug("dest: {0} .".format( dest ) )
 						cnt = 0
 						for tok in cmdData:
 							# Without --dest or --pers options tokens are always added to /ses
-							if not dest and not self.fs.isPathValid( tok ):
+							if not dest and tok[0] != '/':
 								dest = stor.SESPATH
-								
+
 							binaryVal = None
 							if defs.BINARY in optmap:
 								if not optmap[defs.BINARY] or len(optmap[defs.BINARY]) < cnt+1:
@@ -521,7 +534,8 @@ class RegdServer:
 						
 						if swPers:
 							stor.write_locked(self.data_fd, self.perstokens)
-							composeResponse( bresp )
+						
+						composeResponse( bresp )
 						
 				elif cmd == LOAD_FILE_SEC:
 					if not fpar:
