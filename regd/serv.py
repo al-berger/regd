@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-19 05:22:09"
+__lastedited__="2015-08-20 16:40:16"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -280,6 +280,7 @@ class RegdServer:
 		cmdOptions=[]
 		cmdData=[]
 		bresp = bytearray()
+		cmd = None
 		try:
 			cmd = util.parsePacket(data, cmdOptions, cmdData)
 			log.debug( "command received: {0} {1}".format( cmd, cmdData ) )
@@ -382,6 +383,17 @@ class RegdServer:
 							
 					composeResponse(bresp, retCode, resp ) 
 					
+				elif cmd == INFO:
+					resp = "{0} : {1}\n".format( defs.APPNAME, defs.__description__)
+					resp += "License: {0}\n".format(defs.__license__ )
+					resp += "Homepage: {0}\n\n".format(defs.__homepage__ )
+					resp += "Server version: {0}\n".format( defs.rversion)
+					resp += "Server datafile: {0}\n".format( self.datafile)
+					resp += "Server access: {0}\n".format( self.acc )
+					resp += "Server socket file: {0}\n".format( self.sockfile )
+					
+					composeResponse(bresp, "1", resp ) 
+					
 				elif cmd == IF_PATH_EXISTS:
 					try:
 						self.fs.getSItem( fpar )
@@ -418,7 +430,7 @@ class RegdServer:
 					swNovals = NOVALUES in optmap
 					lres = []
 					if not cmdData:
-						self.fs.listItems( lres=lres, bTree=swTree, nIndent=0, bNovals=swNovals,
+						self.fs[""].listItems( lres=lres, bTree=swTree, nIndent=0, bNovals=swNovals,
 										relPath=None, bRecur=swRecur)
 					else:
 						sect = self.fs.getSectionFromStr(fpar)
@@ -479,10 +491,12 @@ class RegdServer:
 						if not swFromPars:
 							for filename in cmdData:
 								if os.path.exists( filename ):
-									stor.read_tokens_from_file(filename, tok, noOverwrite)
+									stor.read_tokens_from_file(filename, self.fs, noOverwrite)
 								else:
 									raise ISException( objectNotExists, filename, "File not found")
 						else:
+							if not dest:
+								dest = stor.SESPATH
 							stok = self.fs.getSectionFromStr(dest)
 							for file in cmdData:
 								stor.read_tokens_from_lines( file.split('\n'), stok, noOverwrite)
