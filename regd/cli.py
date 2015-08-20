@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-08-06 13:44:46"
+__lastedited__ = "2015-08-20 16:20:23"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -131,8 +131,11 @@ def isServerCmd( cpars ):
 	cmd = cpars.get("cmd", None)
 	if not cmd:
 		return False
-	if cmd not in defs.local_cmds and not ( cmd in defs.nonlocal_cmds and not cpars.get( defs.SERVER_SIDE, None ) ):
-		return True
+	if cmd not in defs.local_cmds:
+		if not cmd in defs.nonlocal_cmds:
+			return True
+		elif defs.SERVER_SIDE in cpars:
+			return True
 	return False
 
 def doServerCmd( copts, sockfile, host, port ):
@@ -253,7 +256,7 @@ def main(*kwargs):
 	parser.add_argument( clp( TREE ), "-t", action = CmdSwitch, nargs=0, help = "Output the sections' contents in tree format.")
 	parser.add_argument( clp( PERS ), action = CmdSwitch, nargs=0, help = "Apply the command to persistent tokens.")
 	parser.add_argument( clp( FORCE ), "-f", action = CmdSwitch, nargs=0, help = "Overwrite existing token values when adding tokens.")
-	parser.add_argument( clp( SERVER_SIDE ), action="store_true", help = "Execute command on the server side (only for 'client-or-server' commands).")
+	parser.add_argument( clp( SERVER_SIDE ), action = CmdSwitch, nargs=0, help = "Execute command on the server side (only for 'client-or-server' commands).")
 	parser.add_argument( clp( BINARY ), "-b", action = CmdParam, help = "Binary data.")
 	parser.add_argument( clp( RECURS ), "-r", action = CmdSwitch, nargs=0, help = "Apply the command recursively.")
 	
@@ -488,9 +491,8 @@ def main(*kwargs):
 			return -1
 		
 		print('1')
-		util.printObject( ret )
-		#for l in lres:
-		#	print( l )
+		if ret:
+			util.printObject( ret )
 		
 	# Local commands
 	
