@@ -10,9 +10,9 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-19 04:54:50"
+__lastedited__="2015-08-20 16:41:06"
 
-VERSION = ( 0, 6, 'pre2', 25 )
+VERSION = ( 0, 6, 'pre3', 26 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -41,6 +41,7 @@ STOP_SERVER			= "stop"
 RESTART_SERVER		= "restart"
 CHECK_SERVER		= "check"
 REPORT				= "what"
+INFO				= "info"
 IF_PATH_EXISTS		= "is_path"
 GETATTR				= "getattr"
 SETATTR				= "setattr"
@@ -97,7 +98,7 @@ VERS
 # Command groups
 all_cmds = ( ADD_TOKEN, ADD_TOKEN_SEC, CHECK_SERVER, CLEAR_SEC, CLEAR_SESSION, COPY_FILE, 
 			CREATE_SECTION, CREATE_SECTION_SEC, GETATTR, GET_TOKEN, GET_TOKEN_SEC, HELP, 
-			IF_PATH_EXISTS, LIST, LOAD_FILE, LOAD_FILE_SEC, REMOVE_SECTION, REMOVE_SECTION_SEC, 
+			IF_PATH_EXISTS, INFO, LIST, LOAD_FILE, LOAD_FILE_SEC, REMOVE_SECTION, REMOVE_SECTION_SEC, 
 			REMOVE_TOKEN, REMOVE_TOKEN_SEC, REPORT, RESTART_SERVER, SETATTR, START_SERVER, 
 			STOP_SERVER, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END, TEST_START, 
 			VERS, )
