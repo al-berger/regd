@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-07 21:11:57"
+__lastedited__="2015-08-20 16:15:38"
 
 import sys, os, pwd, logging, signal, re
 import configparser
@@ -589,7 +589,7 @@ def printObject( ob, ind=0, endl='\n'):
 	elif type( ob ) is str:
 		print( "{0}{1}".format( " " * ind, ob), end=endl)
 	else:
-		print( " " * ind, str( ob ), end='')
+		print( "{0}{1}".format( " " * ind, str( ob ) ), end=endl)
 			
 			
 					
