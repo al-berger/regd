@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-20 16:40:16"
+__lastedited__="2015-09-14 01:45:29"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -479,10 +479,13 @@ class RegdServer:
 							else:
 								self.fs.addToken( tok, noOverwrite, binaryVal )
 						
-						if dest and dest.startswith(stor.PERSPATH):
-							write_locked( self.data_fd, self.perstokens )
 							
 						composeResponse( bresp )
+						
+					# TODO: implement autosaving in Stor
+					if ( dest and dest.startswith(stor.PERSPATH) ) or \
+						tok.startswith( stor.PERSPATH ):
+						write_locked( self.data_fd, self.perstokens )
 						
 					elif cmd == LOAD_FILE:
 						'''Load tokens from a file.'''
@@ -524,6 +527,7 @@ class RegdServer:
 							ret = self.fs.getTokenVal(src)
 							
 						composeResponse( bresp, '1', ret )
+						
 				
 				elif cmd in ( GET_TOKEN, REMOVE_TOKEN, CREATE_SECTION, REMOVE_SECTION, RENAME ):
 					if fpar[0] != '/' or not self.fs.isPathValid( fpar ):
