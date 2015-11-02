@@ -213,13 +213,14 @@ class RegdServer:
 	def loop(self, sock):
 		self.cont = True
 		self.exitcode = 0
+		connection = None
 		
 		while True:
 			try:
 				connection, client_address = sock.accept()
 			except socket.timeout:
 				if not os.path.exists( self.sockfile ):
-					log.error("Socket file is gone. Exiting.")
+					log.error("Socket file {0} is gone. Exiting.".format( self.sockfile ) )
 					self.cont = False
 					self.exitcode = 1
 				else:
@@ -230,8 +231,9 @@ class RegdServer:
 				
 			if not self.cont:
 				log.info("Server exiting.")
-				connection.shutdown( socket.SHUT_RDWR )
-				connection.close()
+				if connection:
+					connection.shutdown( socket.SHUT_RDWR )
+					connection.close()
 				if self.data_fd:
 					log.info("Unlocking data file.")
 					fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
