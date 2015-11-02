@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-08-20 16:20:23"
+__lastedited__ = "2015-Nov-02 05:22:56 AM"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -22,8 +22,8 @@ from regd.util import ISException, unknownDataFormat, objectNotExists, cannotCon
 from regd.defs import *  # @UnusedWildImport
 import regd.defs as defs
 import regd.serv as serv
-log = None
 
+log = None
 
 THISFILE = os.path.basename( __file__ )
 
@@ -199,7 +199,6 @@ def doServerCmd( copts, sockfile, host, port ):
 
 def main(*kwargs):
 	global log
-
 	# Parsing command line
 
 	class Item( argparse.Action ):
