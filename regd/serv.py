@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-11-13 22:42:17"
+__lastedited__="2015-11-13 22:53:14"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -442,7 +442,7 @@ class RegdServer:
 					#composeResponse( bresp, '1', "\n".join(lres) )
 					composeResponse( bresp, '1', lres )
 					
-				elif cmd in (ADD_TOKEN, LOAD_FILE, COPY_FILE):
+				elif cmd in (ADD_TOKEN, ADD_TOKEN_SEC, LOAD_FILE, COPY_FILE):
 					dest = None
 					noOverwrite = True
 					if not fpar:
@@ -461,12 +461,12 @@ class RegdServer:
 					if FORCE in optmap:
 						noOverwrite = False
 
-					if cmd == ADD_TOKEN:
+					if cmd in (ADD_TOKEN, ADD_TOKEN_SEC):
 						log.debug("dest: {0} .".format( dest ) )
 						cnt = 0
 						for tok in cmdData:
 							# Without --dest or --pers options tokens are always added to /ses
-							if not dest and tok[0] != '/':
+							if not dest and tok[0] != '/' and cmd != ADD_TOKEN_SEC:
 								dest = stor.SESPATH
 
 							binaryVal = None
@@ -476,10 +476,16 @@ class RegdServer:
 								binaryVal = optmap[defs.BINARY][cnt]
 								cnt += 1
 								
-							if dest:
-								self.fs.addTokenToDest(dest, tok, noOverwrite, binaryVal )
+							if cmd == ADD_TOKEN:
+								if dest:
+									self.fs.addTokenToDest(dest, tok, noOverwrite, binaryVal )
+								else:
+									self.fs.addToken( tok, noOverwrite, binaryVal )
 							else:
-								self.fs.addToken( tok, noOverwrite, binaryVal )
+								if dest:
+									self.sectokens.addTokenToDest(dest, tok, noOverwrite, binaryVal )
+								else:
+									self.sectokens.addToken( tok, noOverwrite, binaryVal )
 						
 							
 						composeResponse( bresp )
