@@ -119,8 +119,11 @@ def Client( cpars, sockfile=None, host=None, port=None ):
 		sock.shutdown( socket.SHUT_RDWR )
 		sock.close()
 		lres = []
-		util.parseResponse( data[10:], lres )
-		util.logcomm.debug("parsed packet: {0}".format( lres ))
+		if len( data ) < 11:
+			lres = ['0', 'Server returned empty response']
+		else:
+			util.parseResponse( data[10:], lres )
+			util.logcomm.debug("parsed packet: {0}".format( lres ))
 		return ( lres[0]=='1', lres[1] if len( lres ) == 2 else lres[1:] )
 	except OSError as er:
 		return False, ["regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 

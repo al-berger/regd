@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-09-14 01:45:29"
+__lastedited__="2015-11-13 22:16:31"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -604,6 +604,8 @@ class RegdServer:
 				composeResponse(bresp, '0', str(e) )
 				
 		try:
+			if not len( bresp ):
+				composeResponse(bresp, "0", "Command not recognized")
 			util.sendPack(connection, bresp )
 		except OSError as er:
 			log.error( "Socket error {0}: {1}\nClient address: {2}\n".format( 
