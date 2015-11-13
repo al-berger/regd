@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-11-13 22:16:31"
+__lastedited__="2015-11-13 22:42:17"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -154,7 +154,7 @@ class RegdServer:
 												defs.SERVER_NAME, 
 												self.servername )
 				else:
-					s = "ps -ef | grep '{0}(/cli.py)? start' | grep -v '{1}' | grep -v grep".format( 
+					s = "ps -ef | grep -E '{0}(/cli.py)? start' | grep -v '{1}' | grep -v grep".format( 
 												APPNAME, 
 												defs.SERVER_NAME )
 					
