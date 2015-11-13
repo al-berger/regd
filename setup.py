@@ -21,6 +21,7 @@ classifiers = [
     'Operating System :: POSIX',
     'Operating System :: Unix',
     'Programming Language :: Python :: 3.4',
+    'Programming Language :: Python :: 3.5',
     'Topic :: Security :: Cryptography',
     'Topic :: Utilities',
 ]
