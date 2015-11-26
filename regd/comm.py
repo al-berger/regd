@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-24 05:35:00"
+__lastedited__="2015-11-25 22:22:28"
 
 import os, subprocess as sp, time
 import regd.defs as defs, regd.util as util, regd.cli as cli
@@ -184,6 +184,10 @@ class RegdComm:
 	def rename( self, src, dst, *args, **kwargs ):
 		m = { "cmd": defs.RENAME, "params": [src, dst] }
 		return self.sendCmd(m, args, kwargs)
+	
+	def logMessage(self, logName, message):
+		s="{0}".format(time.strftime("%m-%d %H:%M:%S"))
+		self.addToken("/sav/log/"+logName + s, message)
 		
 		
 def addArgsToMap( m, args, kwargs ):

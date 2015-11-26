@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-11-13 22:53:14"
+__lastedited__="2015-11-26 11:47:19"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
 import ipaddress
@@ -112,7 +112,7 @@ class RegdServer:
 			
 		if self.data_fd:
 			try:
-				read_locked( self.data_fd, self.perstokens, True )
+				read_locked( self.data_fd, self.perstokens, defs.overwrite )
 			except ISException as e:
 				log.error( "Cannot read the data file: %s" % ( str(e)))
 				raise ISException(operationFailed)
@@ -444,7 +444,7 @@ class RegdServer:
 					
 				elif cmd in (ADD_TOKEN, ADD_TOKEN_SEC, LOAD_FILE, COPY_FILE):
 					dest = None
-					noOverwrite = True
+					addMode = defs.noOverwrite
 					if not fpar:
 						raise ISException(unrecognizedSyntax, moreInfo="No items specified.")
 					if DEST in optmap:
@@ -459,7 +459,9 @@ class RegdServer:
 																					DEST, PERS))
 						dest = stor.PERSPATH
 					if FORCE in optmap:
-						noOverwrite = False
+						addMode = defs.overwrite
+					if SUM in optmap:
+						addMode = defs.sum
 
 					if cmd in (ADD_TOKEN, ADD_TOKEN_SEC):
 						log.debug("dest: {0} .".format( dest ) )
@@ -478,16 +480,15 @@ class RegdServer:
 								
 							if cmd == ADD_TOKEN:
 								if dest:
-									self.fs.addTokenToDest(dest, tok, noOverwrite, binaryVal )
+									self.fs.addTokenToDest(dest, tok, addMode, binaryVal )
 								else:
-									self.fs.addToken( tok, noOverwrite, binaryVal )
+									self.fs.addToken( tok, addMode, binaryVal )
 							else:
 								if dest:
-									self.sectokens.addTokenToDest(dest, tok, noOverwrite, binaryVal )
+									self.sectokens.addTokenToDest(dest, tok, addMode, binaryVal )
 								else:
-									self.sectokens.addToken( tok, noOverwrite, binaryVal )
-						
-							
+									self.sectokens.addToken( tok, addMode, binaryVal )
+													
 						composeResponse( bresp )
 						
 					# TODO: implement autosaving in Stor
@@ -502,7 +503,7 @@ class RegdServer:
 						if not swFromPars:
 							for filename in cmdData:
 								if os.path.exists( filename ):
-									stor.read_tokens_from_file(filename, self.fs, noOverwrite)
+									stor.read_tokens_from_file(filename, self.fs, addMode)
 								else:
 									raise ISException( objectNotExists, filename, "File not found")
 						else:
@@ -510,7 +511,7 @@ class RegdServer:
 								dest = stor.SESPATH
 							stok = self.fs.getSectionFromStr(dest)
 							for file in cmdData:
-								stor.read_tokens_from_lines( file.split('\n'), stok, noOverwrite)
+								stor.read_tokens_from_lines( file.split('\n'), stok, addMode)
 							
 						composeResponse( bresp )
 						
@@ -525,7 +526,7 @@ class RegdServer:
 								with open(src) as f:
 									val = f.read()
 							tok = dst[1:] + " =" + val 
-							self.fs.addTokenToDest(dest, tok, noOverwrite )
+							self.fs.addTokenToDest(dest, tok, addMode )
 							ret = ""
 						elif src[0] == ':': # cp from token to file
 							src = src[1:]

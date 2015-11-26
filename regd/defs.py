@@ -10,9 +10,9 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-09-14 04:38:41"
+__lastedited__="2015-11-26 11:13:04"
 
-VERSION = ( 0, 6, 'pre4', 27 )
+VERSION = ( 0, 6, 'pre6', 29 )
 __version__ = '.'.join( map( str, VERSION[0:3] ) )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -88,6 +88,7 @@ FROM_PARS			= "from_pars"
 ATTR				= "attr"
 BINARY				= "binary"
 RECURS				= "recursively"
+SUM					= "sum"
 
 # Report ("what") options
 ACCESS 				= "access"
@@ -111,5 +112,10 @@ local_cmds = (TEST_START, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_E
 # For executing these commands on server they must come with --server-side switch 
 nonlocal_cmds = (SHOW_LOG, VERS)
 cmd_opts = ( DEST, SESSION, PERS, ALL, TREE, NOVALUES, FORCE, SERVER_SIDE, FROM_PARS, ATTR, 
-			BINARY, RECURS )
+			BINARY, RECURS, SUM )
 rep_opts = (ACCESS, STAT, DATAFILE)
+
+# Add token modes
+overwrite 	= 0
+noOverwrite = 1
+sum 		= 2 # arithmetic adding for numbers and concatenating for strings and binaries 
