@@ -10,12 +10,13 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-15 08:57:07"
+__lastedited__="2015-11-26 12:07:30"
 
 import sys, re, subprocess, tempfile, os, time
 from enum import Enum
 from regd.util import log, logtok, ISException, unknownDataFormat, operationFailed, \
 	objectNotExists, valueAlreadyExists, valueNotExists, unrecognizedParameter, programError
+import regd.defs as defs
 from regd.tok import parse_token, stripOne
 from collections import deque, OrderedDict
 
@@ -26,6 +27,9 @@ SECTIONPATT="^\[(.*)\]$"
 SECTIONNAMEPATT="^(.*?)(?<!\\\):(.*)"
 TOKENPATT="^(.*?)(?<!\\\)=(.*)"
 MULTILINETOKENPATT="^[ \t](.*)$"
+NUMBERPATT="\-?([0-9]*\.)?[0-9]+"
+
+reNumber = re.compile( NUMBERPATT )
 
 PERSNAME = "sav"
 SESNAME = "ses"
@@ -337,7 +341,7 @@ class Stor(SItem, dict):
 		else:
 			self.createSection( sec )	
 		
-	def addTokenToDest(self, dest, tok, noOverwrite=True, binaryVal=None):
+	def addTokenToDest(self, dest, tok, addMode=defs.noOverwrite, binaryVal=None):
 		path, _, _ = parse_token(dest, False, False)
 		try:
 			sec = self.getSection( path )
@@ -346,9 +350,9 @@ class Stor(SItem, dict):
 				sec = self.createSection( dest )
 			else:
 				raise 
-		sec.addToken( tok, noOverwrite, binaryVal )
+		sec.addToken( tok, addMode, binaryVal )
 		
-	def addToken( self, tok, noOverwrite=True, binaryVal=None ):
+	def addToken( self, tok, addMode=defs.noOverwrite, binaryVal=None ):
 		if not binaryVal:
 			path, nam, val = parse_token(tok)
 		else:
@@ -367,11 +371,21 @@ class Stor(SItem, dict):
 			else:
 				raise 
 	
-		sec.insertNamVal( nam, val, noOverwrite )
+		sec.insertNamVal( nam, val, addMode )
 		
-	def insertNamVal(self, nam, val, noOverwrite=True):
-		if nam in self.keys() and noOverwrite:
-			raise ISException(valueAlreadyExists, nam)
+	def insertNamVal(self, nam, val, addMode=defs.noOverwrite):
+		if nam in self.keys():
+			if addMode == defs.noOverwrite:
+				raise ISException(valueAlreadyExists, nam)
+			if addMode == defs.sum:
+				s = self[nam]
+				if reNumber.match( s ) and reNumber.match( val ):
+					if '.' in s or '.' in val:
+						val = str( float( s ) + float( val ) )
+					else:
+						val = str( int( s ) + int( val ) )
+				else:
+					val = s + val
 		self[nam] = val
 		
 	def getToken(self, tok):
@@ -541,7 +555,7 @@ def isPathPers(path):
 baseSectType = Stor 
 baseValType = SVal
 
-def read_tokens_from_lines( lines, stok, noOverwrite=True ):
+def read_tokens_from_lines( lines, stok, addMode=defs.noOverwrite ):
 	'''Loads tokens to 'stok' from a string list.'''
 	'''Section names must be in square brackets and preceded by an empty line (if not at
 	the beginning of the list) in order not to be mixed with tokens like [aaa]=[bbb].'''
@@ -561,7 +575,7 @@ def read_tokens_from_lines( lines, stok, noOverwrite=True ):
 			mtok = reTok.match(curTok)
 			if not mtok or mtok.lastindex != 2:
 				raise ISException(unknownDataFormat, l, "Cannot parse token.")
-			stok.addToken(curPath + curTok, noOverwrite)
+			stok.addToken( curPath + curTok, addMode )
 			curTok = None
 			
 	for l in lines:
@@ -591,7 +605,7 @@ def read_tokens_from_lines( lines, stok, noOverwrite=True ):
 		curTok = stripOne( l, False, True, '\n')
 	flush()
 				
-def read_sec_file( filename, cmd, tok, noOverwrite=True ):
+def read_sec_file( filename, cmd, tok, addMode=defs.noOverwrite ):
 	if not os.path.exists( filename ):
 		log.error( "Cannot find encrypted data file. Exiting." )
 		raise ISException( operationFailed, "File not found." )
@@ -607,9 +621,9 @@ def read_sec_file( filename, cmd, tok, noOverwrite=True ):
 	ftxt = ftxt.decode( 'utf-8' )
 	ltxt = ftxt.split( "\n" )
 
-	read_tokens_from_lines(ltxt, tok, noOverwrite)
+	read_tokens_from_lines( ltxt, tok, addMode )
 			
-def read_tokens_from_file(filename, tok, noOverwrite=False):
+def read_tokens_from_file(filename, tok, addMode=defs.noOverwrite ):
 	'''Reads tokens from a text file. If the file contains several sections, their names
 	should be specified in the file in square brackets in the beginning of each section.
 	If tokens are loaded into a single section, its name can be specified either in the 
@@ -621,16 +635,16 @@ def read_tokens_from_file(filename, tok, noOverwrite=False):
 	with open(filename) as f:
 		lines = f.readlines()
 	
-	read_tokens_from_lines(lines, tok, noOverwrite)
+	read_tokens_from_lines(lines, tok, addMode)
 				
 
-def read_locked( fd, cp, bOverwrite=False ):
+def read_locked( fd, cp, addMode=defs.noOverwrite ):
 	try:
 		l = fd.readlines()
-		if bOverwrite:
+		if addMode == defs.overwrite:
 			cp.clear()
 				
-		read_tokens_from_lines(l, cp, None )
+		read_tokens_from_lines(l, cp, addMode )
 	except OSError as e:
 		raise ISException( operationFailed, e.strerror )
 	
