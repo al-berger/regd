@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-11-26 12:07:30"
+__lastedited__="2015-11-26 12:40:28"
 
 import sys, re, subprocess, tempfile, os, time
 from enum import Enum
@@ -562,7 +562,7 @@ def read_tokens_from_lines( lines, stok, addMode=defs.noOverwrite ):
 	reSect=re.compile(SECTIONPATT)
 	reTok=re.compile(TOKENPATT, re.DOTALL)
 	reMlTok=re.compile(MULTILINETOKENPATT)
-	reEmpty=re.compile("^\s*$")
+	reEmpty=re.compile("^$")
 
 	curPath = ''
 	curTok = None
