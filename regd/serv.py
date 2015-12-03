@@ -10,10 +10,10 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-11-26 11:47:19"
+__lastedited__ = "2015-12-02 20:43:27"
 
-import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
-import ipaddress
+import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading, tempfile
+import ipaddress, shutil
 import fcntl  # @UnresolvedImport
 import regd.util as util, regd.defs as defs
 from regd.util import log, ISException, permissionDenied, persistentNotEnabled, valueNotExists,\
@@ -24,6 +24,8 @@ from regd.stor import EnumMode, read_locked, write_locked, get_token,\
 import regd.stor as stor
 import __main__  # @UnresolvedImport
 from regd.defs import *  # @UnusedWildImport
+
+lock_seriz = threading.Lock()
 
 class RegdServer:
 	def __init__(self, servername, sockfile, host, port, acc, datafile ):
@@ -50,6 +52,9 @@ class RegdServer:
 		self.fs['']=getstor()
 		self.fs[''][stor.SESNAME]=self.tokens
 		self.fs[''][stor.PERSNAME]=self.perstokens
+		if datafile:
+			self.fs.setSItemAttr("/sav", ("{0}={1}".format(
+					stor.SItem.Attrs.persPath.name, datafile),))  # @UndefinedVariable
 		self.secfs['']=getstor()
 		self.secfs[''][stor.SESNAME]=self.tokens
 		self.secfs[''][stor.PERSNAME]=self.perstokens
@@ -98,10 +103,11 @@ class RegdServer:
 					self.trustedUserids.append(uid)
 					
 		if self.datafile:
+			'''
 			# Obtaining the lock
 			try:
-				self.data_fd = open( self.datafile, "r+", buffering=1 )
-				log.debug("Data file fileno: %i" % (self.data_fd.fileno()))
+				self.data_fd = open( self.datafile, "r+b", buffering=1 )
+				#log.debug("Data file fileno: %i" % (self.data_fd.fileno()))
 				#fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
 			except OSError as e:
 				print("Error: data file \"{0}\" could not be opened: {1}".format(datafile, e.strerror), 
@@ -111,8 +117,16 @@ class RegdServer:
 			print( "Server's data file is not specified. Persistent tokens are not enabled.")
 			
 		if self.data_fd:
+		'''
 			try:
-				read_locked( self.data_fd, self.perstokens, defs.overwrite )
+				fhd={'cur':None}
+				stor.treeLoad = True
+				self.fs['']['sav'].serialize( fhd, read=True)
+				stor.treeLoad = False
+				for v in fhd.values():
+					if v: v.close()
+				#read_locked( self.data_fd, self.perstokens, defs.overwrite )
+				#self.data_fd.close()
 			except ISException as e:
 				log.error( "Cannot read the data file: %s" % ( str(e)))
 				raise ISException(operationFailed)
@@ -129,11 +143,15 @@ class RegdServer:
 		sigHandler.push(signal.SIGALRM, signal_handler)
 		
 	def __del__(self):
-		if not self.disposed:
-			self.close()
+		# close() is better to be called earlier in order for closing routines not be
+		# called when some modules are unloaded 
+		self.close()
 		
 	def close(self):
+		if self.disposed:
+			return
 		self.disposed = True
+		self.serialize()
 		if os.path.exists( self.sockfile ):
 			log.info("Signal is received. Unlinking socket file...")
 			os.unlink( self.sockfile )
@@ -151,12 +169,12 @@ class RegdServer:
 				if self.servername and self.servername != "regd":
 					s = "ps -ef | grep '{0}(/cli.py)? start .*{1} {2}' | grep -v grep".format( 
 												APPNAME, 
-												defs.SERVER_NAME, 
+												util.clp(defs.SERVER_NAME), 
 												self.servername )
 				else:
 					s = "ps -ef | grep -E '{0}(/cli.py)? start' | grep -v '{1}' | grep -v grep".format( 
 												APPNAME, 
-												defs.SERVER_NAME )
+												util.clc(defs.SERVER_NAME) )
 					
 				
 				res = subprocess.check_output( s, shell = True ).decode( 'utf-8' )
@@ -224,7 +242,13 @@ class RegdServer:
 					self.cont = False
 					self.exitcode = 1
 				else:
+					if self.datafile:
+						#TODO: in thread
+						if lock_seriz.acquire( blocking=False ):
+							self.serialize( )
+							lock_seriz.release()
 					continue
+			
 			except Exception as e:
 				print( "Exception occured: ", e)
 				self.cont = False
@@ -241,11 +265,10 @@ class RegdServer:
 											
 			threading.Thread( target=self.handle_connection, name="handle_connection", 
 								args=(connection, client_address) ).start()
-	
-		
+
 	def handle_connection(self, *args):
 		connection = args[0] 
-		client_address = args[1]			
+		client_address = args[1]
 		try:
 			self._handle_connection(connection, client_address)
 		except ISException as e:
@@ -256,12 +279,11 @@ class RegdServer:
 			log.error("Exception in server loop. Exiting. %s" % (e))
 			self.cont = False
 			self.exitcode = -1
-			
+
 		finally:
 			connection.shutdown( socket.SHUT_RDWR )
 			connection.close()
 
-						
 	def _handle_connection(self, connection, client_address):
 		if not self.host:
 			creds = connection.getsockopt( socket.SOL_SOCKET, socket.SO_PEERCRED, 
@@ -413,11 +435,26 @@ class RegdServer:
 					With 'attrname' works like 'getxattr'.
 					'''
 					attrNames = None
-					if ATTR in optmap:
-						attrNames = optmap[ATTR]
+					if ATTRS in optmap:
+						attrNames = optmap[ATTRS]
 					m = self.fs.getSItemAttr( fpar, attrNames )
 					composeResponse(bresp, '1', m)					
 							
+				elif cmd == SETATTR:
+					'''Set attributes of a storage item.
+					Syntax: SETATTR <itempath> <attrname=attrval ...>'''
+					item = self.fs.setSItemAttr( fpar, optmap[ATTRS] )
+					
+					# When the backing storage path attribute is set, the storage file 
+					# is overwritten with the current content of the item. In order to
+					# read the file contents into an item, loadFile function is used.
+					if [x for x in optmap[ATTRS] if x.startswith(stor.SItem.persPathAttrName + "=")]:
+						#item.writeToFile()
+						with lock_seriz:
+							self.serialize()  
+					
+					composeResponse( bresp )
+					
 				elif cmd == SHOW_LOG:
 					n = 20
 					if spar:
@@ -461,7 +498,11 @@ class RegdServer:
 					if FORCE in optmap:
 						addMode = defs.overwrite
 					if SUM in optmap:
-						addMode = defs.sum
+						addMode = defs.sumUp
+					if ATTRS in optmap:
+						attrs=util.pairsListToMap(optmap[ATTRS])
+					else:
+						attrs=None
 
 					if cmd in (ADD_TOKEN, ADD_TOKEN_SEC):
 						log.debug("dest: {0} .".format( dest ) )
@@ -476,25 +517,23 @@ class RegdServer:
 								if not optmap[defs.BINARY] or len(optmap[defs.BINARY]) < cnt+1:
 									raise ISException( unknownDataFormat, tok )
 								binaryVal = optmap[defs.BINARY][cnt]
+								attrs[stor.SItem.Attrs.encoding.name] = defs.BINARY  # @UndefinedVariable
 								cnt += 1
-								
+							sec = None
 							if cmd == ADD_TOKEN:
 								if dest:
-									self.fs.addTokenToDest(dest, tok, addMode, binaryVal )
+									sec = self.fs.addTokenToDest(dest, tok, addMode, binaryVal,attrs=attrs )
 								else:
-									self.fs.addToken( tok, addMode, binaryVal )
+									sec = self.fs.addToken( tok, addMode, binaryVal,attrs=attrs )
 							else:
 								if dest:
-									self.sectokens.addTokenToDest(dest, tok, addMode, binaryVal )
+									sec = self.sectokens.addTokenToDest(dest, tok, addMode, binaryVal,attrs=attrs )
 								else:
-									self.sectokens.addToken( tok, addMode, binaryVal )
+									sec = self.sectokens.addToken( tok, addMode, binaryVal,attrs=attrs )
+							
+							if sec: sec.markChanged()
 													
 						composeResponse( bresp )
-						
-					# TODO: implement autosaving in Stor
-					if ( dest and dest.startswith(stor.PERSPATH) ) or \
-						tok.startswith( stor.PERSPATH ):
-						write_locked( self.data_fd, self.perstokens )
 						
 					elif cmd == LOAD_FILE:
 						'''Load tokens from a file.'''
@@ -549,18 +588,21 @@ class RegdServer:
 					if cmd == GET_TOKEN:
 						composeResponse( bresp, '1', self.fs.getTokenVal(fpar) )
 						log.debug( "response: {0} ".format(bresp) )
-					else:		
+					else:
 						if cmd == REMOVE_TOKEN:
-							self.fs.removeToken(fpar)
+							sec = self.fs.removeToken(fpar)
 						elif cmd == CREATE_SECTION:
-							self.fs.createSection( fpar )			
+							sec = self.fs.createSection( fpar )
+							if ATTRS in optmap:
+								sec.setAttrs( optmap[ATTRS] )
+								sec.readFromFile( updateFromStorage=True )
 						elif cmd == REMOVE_SECTION:
-							self.fs.removeSection(fpar)
+							sec = self.fs.removeSection(fpar)
 						elif cmd == RENAME:
-							self.fs.rename(fpar, spar)
+							sec = self.fs.rename(fpar, spar)
 						
-						if swPers:
-							stor.write_locked(self.data_fd, self.perstokens)
+						if sec:
+							sec.markChanged()
 						
 						composeResponse( bresp )
 						
@@ -628,6 +670,7 @@ class RegdServer:
 		return
 			
 	def prepareStat(self):
+		'''Gather statistics'''
 		ret = ""
 		m = stor.Stor.statReg( self.tokens )
 		ret += ( "\nSession tokens:\n------------------------\n")
@@ -637,9 +680,30 @@ class RegdServer:
 		ret += util.printMap( m, 0 )
 		ret += ( "\nCommands:\n------------------------\n")
 		ret += util.printMap( self.mcmd, 0 )
-		return ret		
+		return ret
+	
+	def serialize(self):
+		'''Serializing persistent tokens.'''
+		if not len( stor.changed ):
+			return
+		with stor.lock_changed:
+			ch_ = stor.changed[:]
+			stor.changed = []
+		commonPath = os.path.commonpath( [x.pathName() for x in ch_] )
+		if commonPath == "/": commonPath = stor.PERSPATH
+		sec = self.fs.getSectionFromStr( commonPath )
+		fhd = {}
+		sec.serialize( fhd, read = False )
+		for fpath, fh in fhd.items():
+			if fpath == "cur":
+				continue
+			fh.close()
+			shutil.move(fpath, fpath[:-4])	
+		
 
 def Server( servername, sockfile=None, host=None, port=None, acc=defs.PL_PRIVATE, datafile=None ):
-	RegdServer( servername, sockfile, host, port, acc, datafile ).start_loop()
+	srv = RegdServer( servername, sockfile, host, port, acc, datafile )
+	srv.start_loop()
+	srv.close()
 	
 	

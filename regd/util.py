@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-08-20 16:15:38"
+__lastedited__="2015-12-03 06:20:32"
 
 import sys, os, pwd, logging, signal, re
 import configparser
@@ -19,7 +19,11 @@ import regd.defs as defs
 # Loggers
 log = logging.getLogger( defs.APPNAME )
 logtok = logging.getLogger(defs.APPNAME + ".tok")
+logtok.setLevel( logging.ERROR )
 logcomm = logging.getLogger(defs.APPNAME + ".comm")
+logcomm.setLevel( logging.ERROR )
+logsr = logging.getLogger(defs.APPNAME + ".sr")
+logsr.setLevel( logging.ERROR )
 
 
 _sockfile = None
@@ -103,20 +107,19 @@ def setLog( loglevel, logtopics=None ):
 		log.addHandler( strlog )
 	
 	if logtopics:
+		bf = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
+		strlog_ = logging.StreamHandler()
+		strlog_.setLevel( logging.DEBUG )
+		strlog_.setFormatter( bf )
 		if "tokens" in logtopics and not logtok.hasHandlers():
 			logtok.setLevel(logging.DEBUG)
-			strlogtok = logging.StreamHandler()
-			strlogtok.setLevel( logging.DEBUG )
-			bftok = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
-			strlogtok.setFormatter( bftok )
-			logtok.addHandler( strlogtok )
+			logtok.addHandler( strlog_ )
 		if "comm" in logtopics and not logcomm.hasHandlers():
 			logcomm.setLevel(logging.DEBUG)
-			strlogcomm = logging.StreamHandler()
-			strlogcomm.setLevel( logging.DEBUG )
-			bfcomm = logging.Formatter( "[{asctime:s}] {module:s} {levelname:s} {funcName:s} : {message:s}", "%m-%d %H:%M", "{" )
-			strlogcomm.setFormatter( bfcomm )
-			logcomm.addHandler( strlogcomm )
+			logcomm.addHandler( strlog_ )
+		if "sr" in logtopics and not logsr.hasHandlers():
+			logsr.setLevel(logging.DEBUG)
+			logsr.addHandler( strlog_ )
 			
 def get_home_dir():
 	if defs.homedir:
@@ -330,7 +333,7 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 	# protocol.
 	# Regd client receives commands from the command line, converts it to server command 
 	# syntax, and sends it in the form of command packet to the server.
-	# Each packet contains exactly one command and related to it options, if any.
+	# Each packet contains exactly one command and related options, if any.
 	# Format of command packets:
 	# <COMMAND> <NUMPARAMS> [<PARAMLENGTH> <PARAM>] ... [OPTION NUMPARAMS PARAMLENGTH PARAM]...
 
@@ -555,6 +558,13 @@ def getOptionMap(opts):
 	
 	return ret
 
+def pairsListToMap(l, sep='='):
+	ret={}
+	for x in l:
+		k,_,v=x.strip().partition(sep)
+		ret[k.strip()]=v.strip()
+	return ret
+
 def removeOptions(opts, *args):
 	if not opts:
 		return
@@ -591,5 +601,8 @@ def printObject( ob, ind=0, endl='\n'):
 	else:
 		print( "{0}{1}".format( " " * ind, str( ob ) ), end=endl)
 			
-			
-					
+def splitArgs( s ):
+	r = '(".+?"(?<!\\\)|\S+?) '
+	return [x for x in re.split( r, s ) if x]
+
+	

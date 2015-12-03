@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-07-11 01:46:02"
+__lastedited__ = "2015-12-01 04:30:30"
 
 
 import sys, os, argparse, logging, time, re, pwd
@@ -375,7 +375,7 @@ class TestReg:
 			if ret and ret[0] == ord('1'):
 				res = 1
 			if len( ret ) > 1:
-				ret = ret[1:]
+				ret = ret[2:-1]
 		except sp.CalledProcessError as e:
 			res = -1
 			ret = "{0} {1} returned non-zero: {2}".format( args[0], args[1], e.output[:-1] )
@@ -413,7 +413,7 @@ class TestReg:
 				return False
 				
 			if not binary:
-				ret = ret[:-1].decode( 'utf-8' )
+				ret = ret.decode( 'utf-8' )
 
 			if ret != val:
 				print( "Value and check don't match:\n  {0}\n  {1}\n{2}".format( ret[1:],

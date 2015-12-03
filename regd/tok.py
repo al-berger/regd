@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__="2015-07-12 19:20:22"
+__lastedited__="2015-12-01 04:03:25"
 
 from regd.util import logtok, ISException, unknownDataFormat
 import regd.util as util
@@ -154,11 +154,11 @@ class TokenFeeder:
 		def __next__(self):
 			if self.binary:
 				tok = self.tf.getTokenB( self.cnt )
-				key = tok[0][0] + bytes(b' /') + tok[0][1]
+				key = ((tok[0][0] + bytes(b' /')) if tok[0][0] else b"") + tok[0][1]
 				val = tok[0][2]
 			else:
 				tok = self.tf.getToken( self.cnt )
-				key = tok[0][0] + ' /' + tok[0][1]
+				key = ((tok[0][0] + ' /') if tok[0][0] else "") + tok[0][1]
 				val = tok[0][2]
 				
 			self.cnt += 1

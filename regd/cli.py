@@ -260,7 +260,9 @@ def main(*kwargs):
 	parser.add_argument( clp( FORCE ), "-f", action = CmdSwitch, nargs=0, help = "Overwrite existing token values when adding tokens.")
 	parser.add_argument( clp( SERVER_SIDE ), action = CmdSwitch, nargs=0, help = "Execute command on the server side (only for 'client-or-server' commands).")
 	parser.add_argument( clp( BINARY ), "-b", action = CmdParam, help = "Binary data.")
+	parser.add_argument( clp( ATTRS ), "-a", action = CmdParam, help = "Token attributes.")
 	parser.add_argument( clp( RECURS ), "-r", action = CmdSwitch, nargs=0, help = "Apply the command recursively.")
+	parser.add_argument( clp( SUM ), action = CmdSwitch, nargs=0, help = "Sum up the token with the existing value.")
 	
 	args = parser.parse_args(*kwargs)
 	
@@ -402,6 +404,8 @@ def main(*kwargs):
 			else:
 				print( "Unknown access mode. Must be: 'private', 'public-read' or 'public'")
 				return 1
+		else:
+			args.access = acc
 		log.debug("Permission level: %s" % args.access )
 		
 		# Data file
