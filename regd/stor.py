@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-03 07:17:40"
+__lastedited__ = "2015-12-03 09:41:43"
 
 import sys, re, subprocess, tempfile, os, time, threading, shutil
 from enum import Enum
@@ -154,8 +154,13 @@ class SItem:
 		logsr.debug( "getSerFile() is called..." )
 		fhcur = fhd.get("cur", None)
 		if not fpath:
+			if self.storageRef == None:
+				raise ISException( valueNotExists, self.pathName(), "No storage for")
 			fname = self.storageRef.getAttr( SItem.Attrs.persPath.name )
-			fpath = self.getPersStoragePath(os.path.dirname( fhcur ))
+			if fhcur:
+				fpath = self.getPersStoragePath(os.path.dirname( fhcur.name ))
+			else:
+				fpath = fname
 		if not fpath:
 			raise ISException( valueNotExists, self.name, "Storage not specified for" )
 		sfx = "" if read else ".tmp"
@@ -196,12 +201,12 @@ class SItem:
 		return False
 	
 	def getPersStoragePath(self, curDir):
-		if SItem.persPathAttrName in self.attrs:
-			fpath = self.attrs[SItem.persPathAttrName]
-			if not os.path.isabs( fpath ):
-				fpath = os.path.normpath(os.path.join(curDir, fpath) )
-			return fpath
-		return None
+		fpath = self.storageRef.getAttr(SItem.persPathAttrName)
+		if not fpath:
+			return None
+		if not os.path.isabs( fpath ):
+			fpath = os.path.normpath(os.path.join(curDir, fpath) )
+		return fpath
 	
 	def readFromFile(self, updateFromStorage=True, filePaths=None):
 		fpaths = []
@@ -837,6 +842,8 @@ class Stor(SItem, dict):
 				if not os.path.isabs( fname ):
 					if not sect: sect = fname
 					fpath = os.path.normpath(os.path.join(os.path.dirname(fh.name), fname) )
+				else:
+					fpath = fname
 				if not os.path.isfile( fpath ):
 					raise ISException( objectNotExists, fpath, "Included file not found:" )
 				if fpath in fhd:
