@@ -10,7 +10,7 @@
 *		
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-02 20:43:27"
+__lastedited__ = "2015-12-03 11:15:45"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading, tempfile
 import ipaddress, shutil
@@ -35,7 +35,6 @@ class RegdServer:
 		self.port = port
 		self.acc = acc
 		self.datafile = datafile
-		self.data_fd = None
 		self.sock = None
 		self.disposed = False
 		
@@ -155,8 +154,6 @@ class RegdServer:
 		if os.path.exists( self.sockfile ):
 			log.info("Signal is received. Unlinking socket file...")
 			os.unlink( self.sockfile )
-		if self.data_fd:
-			fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
 		
 	def start_loop(self):
 		
@@ -258,9 +255,6 @@ class RegdServer:
 				if connection:
 					connection.shutdown( socket.SHUT_RDWR )
 					connection.close()
-				if self.data_fd:
-					log.info("Unlocking data file.")
-					fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_UN )
 				sys.exit( self.exitcode )
 											
 			threading.Thread( target=self.handle_connection, name="handle_connection", 
@@ -353,7 +347,7 @@ class RegdServer:
 		log.debug("perm: {0}".format( perm ) )
 		if not perm:
 			composeResponse(bresp, "0", str( ISException( permissionDenied, cmd ) ) )
-		elif not self.data_fd and util.getSwitches(cmdOptions, PERS)[0]:
+		elif not self.datafile and util.getSwitches(cmdOptions, PERS)[0]:
 			composeResponse(bresp, "0", str( ISException(persistentNotEnabled) ) )
 		elif not len(bresp):
 			self.mcmd[cmd] = 1 if cmd not in self.mcmd else self.mcmd[cmd]+1
@@ -691,6 +685,8 @@ class RegdServer:
 			stor.changed = []
 		commonPath = os.path.commonpath( [x.pathName() for x in ch_] )
 		if commonPath == "/": commonPath = stor.PERSPATH
+		if not commonPath.startswith(stor.PERSPATH):
+			return
 		sec = self.fs.getSectionFromStr( commonPath )
 		fhd = {}
 		sec.serialize( fhd, read = False )
