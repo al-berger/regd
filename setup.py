@@ -2,9 +2,9 @@
 """
     regd.py
     ~~~~~~~~~~~
-    
+
     Secure registry and data cache.
-    
+
     :copyright: (c) 2015 by Albert Berger.
     :license: GPL, see LICENSE for more details.
 """
@@ -26,18 +26,18 @@ classifiers = [
     'Topic :: Utilities',
 ]
 
-setup(
-    name                = 'regd',
-    version             = defs.__version__,
-    description         = defs.__description__,
-    long_description    = open('README.md').read().strip(),
-    author              = defs.__author__,
-    author_email        = defs.__author_email__,
-    url                 = defs.__homepage__,
-    license             = defs.__license__,
-    packages            = ['regd', 'regd.testing'],
-    #package_data		= {'tests': ['data/test.conf']},
-    scripts             = ['data/regd'],
-    classifiers         = classifiers,
-    keywords            = "registry settings configuration manager daemon cache"
-)
+setup( 
+    name = 'regd',
+    version = defs.__version__,
+    description = defs.__description__,
+    long_description = open( 'README.md' ).read().strip(),
+    author = defs.__author__,
+    author_email = defs.__author_email__,
+    url = defs.__homepage__,
+    license = defs.__license__,
+    packages = ['regd', 'regd.testing'],
+    # package_data		= {'tests': ['data/test.conf']},
+    scripts = ['data/regd'],
+    classifiers = classifiers,
+    keywords = "registry settings configuration manager daemon cache"
+ )
