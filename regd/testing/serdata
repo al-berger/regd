@@ -1,0 +1,33 @@
+f1aaa=AAA
+f1bbb=BBB
+[f1sec1]
+f1sec1aaa=AAA
+[f1sec2]
+//include file2
+f1sec2aaa=AAA
+[f1sec3]
+f1sec3aaa=AAA
+.
+f2qqq=QQQ
+//include file3
+[f2sec1]
+f2sec1qqq=QQQ
+.
+[f3sec1]
+f3sec1xxx=XXX
+[f3sec2]
+f3sec2YYY=YYY
+.
+f4ppp=PPP
+.
+f5nnn=NNN
+.
+/sav/f1aaa=AAA
+/sav/f1bbb=BBB
+/sav/f1sec1/f1sec1aaa=AAA
+/sav/f1sec2/file2/f2qqq=QQQ
+/sav/f1sec2/file2/file3/f3sec1/f3sec1xxx=XXX
+/sav/f1sec2/file2/file3/f3sec2/f3sec2YYY=YYY
+/sav/f1sec2/file2/f2sec1/f2sec1qqq=QQQ
+/sav/f1sec2/f1sec2aaa=AAA
+/sav/f1sec3/f1sec3aaa=AAA
