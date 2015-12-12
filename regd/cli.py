@@ -17,8 +17,8 @@ __lastedited__ = "2015-Nov-02 05:22:56 AM"
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
 import regd.util as util
-from regd.util import ISException, unknownDataFormat, objectNotExists, cannotConnectToServer, clc, \
-	declc, clp
+from regd.app import clc, declc, clp
+from regd.app import IKException, ErrorCode
 import regd.defs as defs
 import regd.serv as serv
 import regd.app as app
@@ -53,11 +53,11 @@ def connectToServer( sockfile = None, host = None, port = None, tmout = 3 ):
 	'''Makes connection to server.'''
 	if host:
 		if not port:
-			raise ISException( unknownDataFormat, "Port number is not provided." )
+			raise IKException( ErrorCode.unknownDataFormat, "Port number is not provided." )
 		sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
 	else:
 		if not os.path.exists( sockfile ):
-			raise ISException( objectNotExists, sockfile, "Server's socket file doesn't exist" )
+			raise IKException( ErrorCode.objectNotExists, sockfile, "Server's socket file doesn't exist" )
 
 		sock = socket.socket( socket.AF_UNIX, socket.SOCK_STREAM )
 		sock.setsockopt( socket.SOL_SOCKET, socket.SO_PASSCRED, 1 )
@@ -70,7 +70,7 @@ def connectToServer( sockfile = None, host = None, port = None, tmout = 3 ):
 		else:
 			sock.connect( sockfile )
 	except OSError as er:
-		raise ISException( cannotConnectToServer,
+		raise IKException( ErrorCode.cannotConnectToServer,
 						"Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
 												er.errno, er.strerror, sockfile, host, port ) )
 
@@ -87,7 +87,7 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 									cpars, sockfile, host, port ) )
 
 	if not cpars.get( "cmd", None ):
-		raise ISException( unknownDataFormat, "Command parameters must have 'cmd' field." )
+		raise IKException( ErrorCode.unknownDataFormat, "Command parameters must have 'cmd' field." )
 
 	tmout = 3
 	if cpars["cmd"].find( "_sec " ) != -1 or cpars["cmd"].endswith( "_sec" ):
@@ -103,7 +103,7 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 			sock = connectToServer( sockfile, host, port, tmout )
 			util.sendPack( sock, bpack )
 			util.recvPack( sock, data )
-		except ISException as e:
+		except IKException as e:
 			return False, [str( e )]
 
 		util.logcomm.debug( "received packet: {0}".format( data ) )
@@ -281,13 +281,13 @@ def main( *kwargs ):
 
 	try:
 		atuser, servername = util.parse_server_name( args.server_name )
-	except ISException as e:
+	except IKException as e:
 		print( e )
 		return e.code
 	log.debug( "Server name: %s ; atuser: %s" % ( servername, atuser ) )
 
 	if servername == "regd":
-		raise  ISException( util.unrecognizedParameter,
+		raise  IKException( ErrorCode.unrecognizedParameter,
 			"Default server name should not be specified in command line parameters." )
 	if not servername:
 		servername = "regd"
@@ -446,10 +446,16 @@ def main( *kwargs ):
 				fp.close()
 
 		log.debug( "datafile: %s" % datafile )
+		
+		# bin_section file
+		binsect = d.get( "bin_section", None )
+		if not binsect:
+			if os.path.isfile( os.path.join( DATADIR, "bin_section") ):
+				binsect = os.path.join( DATADIR, "bin_section" )
 
 		log.info( "Starting %s server %s : %s " % ( args.access,
 						( servername, host )[bool( host )], ( _sockfile, port )[bool( host )] ) )
-		return serv.Server( servername, _sockfile, host, port, acc, datafile )
+		return serv.Server( servername, _sockfile, host, port, acc, datafile, binsect )
 
 	elif cmd == defs.STOP_SERVER:
 		res, _ = Client( { "cmd": defs.STOP_SERVER }, _sockfile, host, port )

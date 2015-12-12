@@ -39,14 +39,6 @@
 # load_sectokens_cmd = "gpg --textmode -d FILENAME"
 
 
-# Token separator
-# ---------------
-# A character or sequence of characters used for separating
-# multiple tokens in the '--load' and '--load-pers' command.
-
-# token_separator = @#$
-
-
 # Log file
 # --------
 # If this option contains a valid file pathname, then regd will write error and
@@ -62,6 +54,12 @@
 # are not enabled and commands for getting and setting persistent tokens will fail.
 
 # datadir = ~/.config/regd/data
+
+# 'bin' data file
+# ---------------
+# A file containing /bin items.
+
+# bin_section = ${datadir}/bin_section
  
  
  # Trusted users

@@ -10,11 +10,12 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-04 09:03:48"
+__lastedited__ = "2015-12-11 14:44:49"
 
 import os, subprocess as sp, time
 import regd.defs as defs, regd.util as util, regd.cli as cli
-from regd.util import log, clp
+from regd.util import log
+from regd.app import IKException, clp
 
 rc = "regd"
 
@@ -24,13 +25,15 @@ def regdcmd( cpars, addr = None, servername = None, host = None, port = None ):
 	if addr:
 		if addr.find( ":" ) != -1:
 			host, _, port = addr.partition( ":" )
+			host = host.strip()
+			port = port.strip()
 		else:
 			servername = addr
 
 	if not host:
 		try:
 			atuser, servername = util.parse_server_name( servername )
-		except util.ISException as e:
+		except IKException as e:
 			print( e )
 			return e.code
 
@@ -101,7 +104,7 @@ class RegdComm:
 		try:
 			res, ret = regdcmd( { "cmd": defs.CHECK_SERVER }, addr = self.servAddr, servername = self.servName,
 							host = self.host, 	port = self.port )
-		except util.ISException as e:
+		except IKException as e:
 			res = False
 			ret = str( e )
 		return res, ret
@@ -110,7 +113,7 @@ class RegdComm:
 		try:
 			res, ret = regdcmd( { "cmd": defs.RESTART_SERVER }, addr = self.servAddr, servername = self.servName,
 							host = self.host, 	port = self.port )
-		except util.ISException as e:
+		except IKException as e:
 			res = False
 			ret = str( e )
 		return res, ret
@@ -120,7 +123,7 @@ class RegdComm:
 			res, ret = regdcmd( { "cmd": defs.STOP_SERVER }, addr = self.servAddr, servername = self.servName,
 							host = self.host, 	port = self.port )
 			time.sleep( 2 )
-		except util.ISException as e:
+		except IKException as e:
 			res = False
 			ret = str( e )
 		return res, ret
