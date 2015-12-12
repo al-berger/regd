@@ -8,11 +8,12 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2015-12-04 08:15:23"
+__lastedited__ = "2015-12-09 12:47:09"
 
-import sys, os, pwd, logging, signal, re
+import os, pwd, logging, re
 import regd.defs as defs
 import regd.app as app
+from regd.app import IKException, ErrorCode
 
 # Loggers
 log = logging.getLogger( app.APPNAME )
@@ -23,72 +24,6 @@ logcomm.setLevel( logging.ERROR )
 logsr = logging.getLogger( app.APPNAME + ".sr" )
 logsr.setLevel( logging.ERROR )
 
-
-# Exceptions
-
-class ISException( Exception ):
-	''' InfoStore exception. '''
-	def __init__( self, code, errCause = None, errMsg = None, moreInfo = None ):
-		# curframe = inspect.currentframe()
-		# calframe = inspect.getouterframes(curframe, 2)
-		# self.raiser = calframe[1][3]
-		self.raiser = sys._getframe().f_back.f_code.co_name
-		self.code = code
-		self.cause = errCause
-		if errMsg == None and code < len( errStrings ):
-			self.msg = errStrings[code]
-		else:
-			self.msg = errMsg
-		if moreInfo:
-			self.msg += ": " + moreInfo
-
-	def __str__( self, *args, **kwargs ):
-		return "Exception {0} in {1}:  {2}: {3}".format( self.code, 	self.raiser, self.msg,
-														self.cause )
-
-programError		 = 0
-success				 = 1
-unknownDataFormat 	 = 2
-valueNotExists		 = 3
-valueAlreadyExists	 = 4
-operationFailed		 = 5
-permissionDenied	 = 6
-persistentNotEnabled = 7
-cannotConnectToServer = 8
-clientConnectionError = 9
-# Error codes don't start with '1'
-objectNotExists		 = 20
-unrecognizedParameter = 21
-unrecognizedSyntax	 = 22
-
-errStrings = ["Program error", "Operation successfull", "Unknown data format", "Value doesn't exist", "Value already exists",
-			"Operation failed", "Permission denied",
-			"Persistent tokens are not enabled on this server", "Cannot connect to server",
-			"Client connection error",
-			'', '', '', '', '', '', '', '', '', '',
-			"Object doesn't exist", "Unrecognized parameter", "Unrecognized syntax"]
-
-class SignalHandler:
-	def __init__( self ):
-		self.hmap = {}
-
-	def push( self, sig, h ):
-		if sig not in self.hmap:
-			self.hmap[sig] = []
-			signal.signal( sig, self )
-		self.hmap[sig].append( h )
-
-	def pop( self, sig ):
-		if sig not in self.hmap or not self.hmap[sig]:
-			raise ISException( objectNotExists, sig, "No handler found." )
-		self.hmap[sig].pop()
-
-	def __call__( self, sig, frame ):
-		if sig in self.hmap:
-			for i in range( len( self.hmap[sig] ), 0, -1 ):
-				self.hmap[sig][i - 1]( sig, frame )
-
-sigHandler = SignalHandler()
 
 def setLog( loglevel, logtopics = None ):
 	global log, logtok
@@ -131,11 +66,11 @@ def parse_server_name( server_string ):
 		servername = None
 	else:
 		if len( servername ) > 32:
-			raise ISException( unknownDataFormat, server_string,
+			raise IKException( ErrorCode.unknownDataFormat, server_string,
 							"The server name must not exceed 32 characters." )
 		for c in "\\/:@":
 			if c in servername:
-				raise ISException( unknownDataFormat, server_string,
+				raise IKException( ErrorCode.unknownDataFormat, server_string,
 								"Server name contains not permitted character: '{0}'".format( c ) )
 
 	return ( atuser, servername )
@@ -192,7 +127,7 @@ def recvPack( sock, pack ):
 		try:
 			newdata = sock.recv( 4096 )
 		except OSError as e:
-			raise ISException( clientConnectionError, moreInfo = e.strerror )
+			raise IKException( ErrorCode.clientConnectionError, moreInfo = e.strerror )
 
 
 		data.extend( newdata )
@@ -203,10 +138,10 @@ def recvPack( sock, pack ):
 				packlen = int( data[:10].decode( 'utf-8' ).strip() ) + 10
 			except:
 				log.debug( "wrong format: %s" % ( data.decode( 'utf-8' ) ) )
-				raise ISException( unknownDataFormat )
+				raise IKException( ErrorCode.unknownDataFormat )
 
 	if not packlen:
-		raise ISException( clientConnectionError, moreInfo = "No data received" )
+		raise IKException( ErrorCode.clientConnectionError, moreInfo = "No data received" )
 
 	pack.extend( data )
 
@@ -221,7 +156,7 @@ def createPacket( cpars : 'in map', bpack : 'out bytearray' ):
 	# Format: <packlen> <cmd|opt> <numparams> [<paramlen> <param>]...
 
 	if not cpars.get( "cmd", None ):
-		raise ISException( unknownDataFormat, "Command parameters must have 'cmd' field." )
+		raise IKException( ErrorCode.unknownDataFormat, "Command parameters must have 'cmd' field." )
 
 	bpack.extend( ( cpars["cmd"] + ' ' ).encode( 'utf-8' ) )
 	if cpars.get( "params" ):
@@ -246,7 +181,7 @@ def createPacket( cpars : 'in map', bpack : 'out bytearray' ):
 				elif type( par ) is bytearray or type( par ) is bytes:
 					b = par
 				else:
-					raise ISException( unknownDataFormat, par )
+					raise IKException( ErrorCode.unknownDataFormat, par )
 				bpack.extend( ( str( len( b ) ) + ' ' ).encode( 'utf-8' ) )
 				bpack.extend( b )
 		else:
@@ -294,7 +229,7 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 		params = []
 		word, _, data = data.partition( b' ' )
 		if not data:
-			raise ISException( unknownDataFormat, word + ' ' + data )
+			raise IKException( ErrorCode.unknownDataFormat, word + ' ' + data )
 		numparams, _, data = data.partition( b' ' )
 		try:
 			numparams = int( numparams.decode( 'utf-8' ) )
@@ -327,10 +262,10 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 			else:
 				raise
 		except:
-			raise ISException( unknownDataFormat, word )
+			raise IKException( ErrorCode.unknownDataFormat, word )
 
 	if not cmd:
-		raise ISException( unknownDataFormat, "Command is not recognized." )
+		raise IKException( ErrorCode.unknownDataFormat, "Command is not recognized." )
 
 	return cmd
 
@@ -430,7 +365,7 @@ def parseResponse( resp : "byte array with server response",
 				l = []
 				unpackObject( _data, l )
 				if len( l ) > 1:
-					raise ISException( unknownDataFormat, resp[:20],
+					raise IKException( ErrorCode.unknownDataFormat, resp[:20],
 									moreInfo = "Dictionary key is a compound object" )
 				k = l[0]
 				l = []
@@ -443,7 +378,7 @@ def parseResponse( resp : "byte array with server response",
 
 	res, _, data = resp.partition( b' ' )
 	if not data:
-		raise ISException( unknownDataFormat, resp[:20] )
+		raise IKException( ErrorCode.unknownDataFormat, resp[:20] )
 	lres.append( res.decode( 'utf-8' ) )
 	unpackObject( [data], lres )
 
@@ -457,15 +392,6 @@ def getLog( n ):
 	with open( logfile, "r" ) as f:
 		ls = f.readlines()[-n:]
 	return "".join( ls )
-
-def clc( s ):
-	return( s.replace( "_", "-" ) )
-
-def declc( s ):
-	return( s.replace( "-", "_" ) )
-
-def clp( s ):
-	return( "--" + s.replace( "_", "-" ) )
 
 def getOptions( opts, *args ):
 	# opts - list of pairs with the first item being the option name

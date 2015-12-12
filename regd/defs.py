@@ -10,12 +10,12 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-04 08:11:16"
+__lastedited__ = "2015-12-12 22:11:49"
 
 import regd.app as app
 from regd.app import APPNAME
 
-VERSION = ( 0, 6, 'pre6', 30 )
+VERSION = ( 0, 6, 1, 31 )
 __version__ = '.'.join( [str( x ) for x in VERSION[0:3]] )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -50,7 +50,7 @@ ADD_TOKEN_SEC		 = "add_sec"
 COPY_FILE			 = "cp"
 LOAD_FILE 			 = "load_file"
 LOAD_FILE_SEC 		 = "load_file_sec"
-GET_TOKEN 			 = "get"
+GET_ITEM 			 = "get"
 GET_TOKEN_SEC		 = "get_sec"
 REMOVE_TOKEN		 = "rm"
 REMOVE_TOKEN_SEC	 = "remove_sec"
@@ -96,12 +96,12 @@ DATAFILE			 = "datafile"
 
 # Command groups
 all_cmds = ( ADD_TOKEN, ADD_TOKEN_SEC, CHECK_SERVER, CLEAR_SEC, CLEAR_SESSION, COPY_FILE,
-			CREATE_SECTION, CREATE_SECTION_SEC, GETATTR, GET_TOKEN, GET_TOKEN_SEC, HELP,
+			CREATE_SECTION, CREATE_SECTION_SEC, GETATTR, GET_ITEM, GET_TOKEN_SEC, HELP,
 			IF_PATH_EXISTS, INFO, LIST, LOAD_FILE, LOAD_FILE_SEC, REMOVE_SECTION, REMOVE_SECTION_SEC,
 			REMOVE_TOKEN, REMOVE_TOKEN_SEC, REPORT, RESTART_SERVER, SETATTR, START_SERVER,
 			STOP_SERVER, TEST_CONFIGURE, TEST_MULTIUSER_BEGIN, TEST_MULTIUSER_END, TEST_START,
 			VERS, )
-pubread_cmds = ( CHECK_SERVER, LIST, GET_TOKEN, IF_PATH_EXISTS )
+pubread_cmds = ( CHECK_SERVER, LIST, GET_ITEM, IF_PATH_EXISTS )
 secure_cmds = ( START_SERVER, STOP_SERVER, RESTART_SERVER, REPORT,
 			ADD_TOKEN_SEC, GET_TOKEN_SEC, LOAD_FILE_SEC, REMOVE_TOKEN_SEC, REMOVE_SECTION_SEC,
 			CLEAR_SEC )
@@ -114,9 +114,10 @@ cmd_opts = ( DEST, SESSION, PERS, ALL, TREE, NOVALUES, FORCE, SERVER_SIDE, FROM_
 rep_opts = ( ACCESS, STAT, DATAFILE )
 
 # Add token modes
-overwrite 	 = 0
+overwrite 	= 0
 noOverwrite = 1
-sumUp 		 = 2  # arithmetic adding for numbers and concatenating for strings and binaries
+clean		= 2
+sumUp 		= 3  # arithmetic adding for numbers and concatenating for strings and binaries
 
 # Data file directive mark
 dirMark = "//"

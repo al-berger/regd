@@ -15,15 +15,15 @@ information in the form of name/value pairs (tokens) and returning it
 in response to commands.
 
 __regd__ can run either as a network server on a dedicated HOST:PORT address
-or as a local server using a local file ("Unix file socket") as a server
+or as a local server using a local file ("Unix domain socket") as a server
 address.
 
 Once __regd__ server is started it remains running and responds to commands
 which are sent to it. Commands manage the server behaviour and are used 
-for adding information to the server storage, retrieving or deleting it, 
-restarting and stopping the server, getting reports or server variable values, 
+for adding tokens to the server storage, retrieving or deleting them, 
+restarting and stopping the server, getting reports or values of server variables, 
 etc. When not executing a user command __regd__ server remains in idle state
-and consumes almost no resources. 
+and consumes almost no resources.
 
 Commands can be sent to the running __regd__ server in one of two ways: 
 via command line using __regd__ as a client, or via sockets. Both these ways
@@ -324,17 +324,16 @@ cp /home/alice/file1 :data/file1
 cp :data/file1 /home/alice/file1 
 
 The __--server-side__ option determines whether the file must be read by the client or
-by the server. (If both are on the same machine and started on the same user account,
-this option does nothing.)
+by the server. (If client and server run on the same machine and started on the same user account, this option has no effect.)
 
-If the data source is a file, the command copies the file contents to the __regd__ server as the destination token's value. With __--server-side__ option the file is opened and read by the Server on server's machine, Without --server-side option the file
-is opened and read by the Client on client's machine and sent to the server.
+If the <SOURCE> is a file, the command copies the file contents to the __regd__ server as the destination token's value. With __--server-side__ option the file is opened and read by Server on the server's machine, Without __--server-side__ option the file
+is opened and read by Client on the client's machine and sent to the server.
 
-If the data source is a token, its content is written to the destination file. In this
-case the --server-side option should not be specified or command will fail. The file
+If the <SOURCE> is a token, its content is written to the destination file. In this
+case the __--server-side__ option cannot be used or command will fail. The file
 is always written on the client's machine.
 
-### load-file <_filename_>
+### load-file <_filename_> [--server-side]
 Add tokens to server from a text file. _filename_ - the path of the file with tokens. 
 The file must contain tokens as <name = value> pairs grouped under section paths in square brackets:
 

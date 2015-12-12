@@ -10,13 +10,12 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-05 12:07:21"
+__lastedited__ = "2015-12-11 12:48:58"
 
 import sys, re, subprocess, tempfile, os, time, threading, shutil
 from enum import Enum
-from regd.util import log, logtok, ISException, unknownDataFormat, operationFailed, \
-	objectNotExists, valueAlreadyExists, valueNotExists, unrecognizedParameter, programError, \
-	unrecognizedSyntax
+from regd.util import log, logtok
+from regd.app import IKException, ErrorCode
 import regd.defs as defs, regd.util as util
 from regd.defs import dirInclude
 from regd.tok import parse_token, stripOne
@@ -43,10 +42,13 @@ reEmpty = re.compile( "^\r?\n$" )
 
 PERSNAME = "sav"
 SESNAME = "ses"
+BINNAME = "bin"
 PERSPATH = "/" + PERSNAME
 SESPATH = "/" + SESNAME
+BINPATH = "/" + BINNAME
 
-rootdirs = [SESPATH, PERSPATH]
+rootdirs = (SESPATH, PERSPATH, BINPATH)
+serializable_roots = (PERSPATH, BINPATH)
 changed = []
 lock_changed = threading.Lock()
 treeLoad = False
@@ -82,9 +84,10 @@ class SItem:
 	# stor.SItem.Attrs.persPath.name => stor.SItem.persPathAttrName
 	persPathAttrName = Attrs.persPath.name
 
-	def __init__( self, itype, mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
+	def __init__( self, itype, rootStor, mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
 				nlink = None, name = '', attrs = None ):
 		self.name = name
+		self.rootStor = rootStor
 		self.itype = itype
 		self.st = st_struct( mode, uid, gid, ctime, mtime, atime, nlink )
 		self.attrs = attrs if attrs else {}
@@ -155,14 +158,14 @@ class SItem:
 		fhcur = fhd.get( "cur", None )
 		if not fpath:
 			if self.storageRef == None:
-				raise ISException( valueNotExists, self.pathName(), "No storage for" )
+				raise IKException( ErrorCode.valueNotExists, self.pathName(), "No storage for" )
 			fname = self.storageRef.getAttr( SItem.Attrs.persPath.name )
 			if fhcur:
 				fpath = self.getPersStoragePath( os.path.dirname( fhcur.name ) )
 			else:
 				fpath = fname
 		if not fpath:
-			raise ISException( valueNotExists, self.name, "Storage not specified for" )
+			raise IKException( ErrorCode.valueNotExists, self.name, "Storage not specified for" )
 		sfx = "" if read else ".tmp"
 
 		if fpath + sfx in fhd:
@@ -173,7 +176,7 @@ class SItem:
 		else:
 			if not os.path.isabs( fpath ):
 				if not fhcur:
-					raise ISException( valueNotExists, fpath, "Cannot resolve relative path" )
+					raise IKException( ErrorCode.valueNotExists, fpath, "Cannot resolve relative path" )
 				fpath = os.path.normpath( os.path.join( os.path.dirname( fhcur.name ), fpath ) )
 
 			logsr.debug( "getSerFile() opens file {0}".format( fpath ) )
@@ -191,7 +194,7 @@ class SItem:
 			fhcur.write( dinc.encode() )
 
 		if not fh:
-			raise ISException( programError, self.name, "No storage file" )
+			raise IKException( ErrorCode.programError, self.name, "No storage file" )
 		logsr.debug( "getSerFile() returns file: {0}".format( fh.name ) )
 		return fh
 
@@ -208,17 +211,25 @@ class SItem:
 			fpath = os.path.normpath( os.path.join( curDir, fpath ) )
 		return fpath
 
-	def readFromFile( self, updateFromStorage = True, filePaths = None ):
-		fpaths = []
-		if filePaths: fpaths.extend( filePaths )
-		if updateFromStorage and SItem.Attrs.persPath.name in self.attrs:
-			self.clear()
-			fpaths.append( self.attrs[SItem.persPathAttrName] )
-		for f in fpaths:
-			fhd = {}
-			self.serialize( fhd = fhd, read = True, addMode = defs.overwrite, fpath = f )
-			for fh in fhd.values():
-				fh.close()
+	def readFromFile( self, fh = None, updateFromStorage = False, filePath = None, 
+					dest = None ):
+		'''Read from one of the three: an open file objectl, a file named in filePath 
+		or update from the backing storage.'''
+		fhd = {}
+		if updateFromStorage:
+			if SItem.Attrs.persPath.name in self.attrs:
+				self.clear()
+				fpath = self.attrs[SItem.persPathAttrName]
+		elif filePath: 
+			fpath = filePath
+		elif fh:
+			fhd[fh.name] = fh
+			fhd['cur'] = fh
+		
+		self.serialize( fhd = fhd, read = True, addMode = defs.overwrite, fpath = fpath, 
+					relPath = dest )
+		for fh in fhd.values():
+			fh.close()
 
 	def writeToFile( self, updateStorage = True, fpath = None ):
 		fpaths = []
@@ -234,11 +245,11 @@ class SItem:
 
 class SVal( SItem ):
 	'''Storage value container.'''
-	def __init__( self, val = None, mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
+	def __init__( self, rootStor, val = None, mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
 				nlink = None, name = '', attrs = None ):
 		self.val = val
 		self.stor = None
-		return super( SVal, self ).__init__( S_IFREG, mode, uid, gid, ctime, mtime, atime,
+		return super( SVal, self ).__init__( S_IFREG, rootStor, mode, uid, gid, ctime, mtime, atime,
 										nlink, name = name, attrs = attrs )
 
 	def __str__( self ):
@@ -285,17 +296,17 @@ class SVal( SItem ):
 						l = continued
 						continued = ""
 
-				if l and ( l[0] == b' ' or l[0] == '\t' ):
+				if l and ( l[0] == ord(' ') or l[0] == ord('\t') ):
 					if not tok:
-						raise ISException( unknownDataFormat, l, "Cannot parse token." )
-					tok += l[1:]
+						raise IKException( ErrorCode.unknownDataFormat, l, "Cannot parse token." )
+					tok += b" " + l[1:]
 				elif tok:
 					if val:
 						tok += val
 						val = b""
 					mtok = reTok.match( tok.decode( errors = "surrogateescape" ) )
 					if not mtok or mtok.lastindex != 2:
-						raise ISException( unknownDataFormat, l, "Cannot parse token" )
+						raise IKException( ErrorCode.unknownDataFormat, l, "Cannot parse token" )
 					tok = tok.replace( b'\n\t', b'\n' )
 					enc = "utf-8"
 					compr = False
@@ -312,14 +323,14 @@ class SVal( SItem ):
 					break
 				elif l.startswith( b"//attributes " ):
 					if attrs:
-						raise ISException( unrecognizedParameter, tok, "Unknown data file format" )
+						raise IKException( ErrorCode.unrecognizedParameter, tok, "Unknown data file format" )
 					_, _, s = l.decode().partition( " " )
 					lattrs = s.split( " " )
 					attrs = {}
 					for x in lattrs:
 						k, _, v = x.partition( "=" )
 						if not ( k and v ):
-							raise ISException( unrecognizedSyntax, x,
+							raise IKException( ErrorCode.unrecognizedSyntax, x,
 											"Unrecognized syntax for an attribute" )
 						attrs[k] = v
 						if k == SItem.persPathAttrName:
@@ -389,11 +400,11 @@ class SVal( SItem ):
 			self.changed = False
 
 class Stor( SItem, dict ):
-	def __init__( self, name = '', mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
+	def __init__( self, rootStor, name = '', mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
 				nlink = None ):
 		self.path = ''
 		self.enumMode = None
-		return super( Stor, self ).__init__( S_IFDIR, mode, uid, gid, ctime, mtime, atime,
+		return super( Stor, self ).__init__( S_IFDIR, rootStor, mode, uid, gid, ctime, mtime, atime,
 										nlink, name = name )
 
 	def __getitem__( self, key ):
@@ -403,19 +414,19 @@ class Stor( SItem, dict ):
 		elif isinstance( item, baseValType ):
 			return item.val
 		else:
-			raise ISException( programError, "Storage item type is: {0}".format( str( type( item ) ) ) )
+			raise IKException( ErrorCode.programError, "Storage item type is: {0}".format( str( type( item ) ) ) )
 
 	def get( self, *args, **kwargs ):
 		return dict.get( self, *args, **kwargs )
 
 	def __setitem__( self, key, val ):
 		if self.name and not key:
-			raise ISException( unrecognizedParameter, "section name is empty" )
+			raise IKException( ErrorCode.unrecognizedParameter, "section name is empty" )
 		if key:
 			if "/" in key:
-				raise ISException( unrecognizedParameter, "section name contains '/'" )
+				raise IKException( ErrorCode.unrecognizedParameter, "section name contains '/'" )
 			if key == '.':
-				raise ISException( unrecognizedParameter, key, "not valid section name" )
+				raise IKException( ErrorCode.unrecognizedParameter, key, "not valid section name" )
 		if type( val ) == type( self ):
 			if self.path:
 				val.setPath( self.path + "/" + self.name )
@@ -426,7 +437,7 @@ class Stor( SItem, dict ):
 					val.setPath( '' )
 		else:
 			if not isinstance( val, SVal ):
-				val = SVal( val, 0o644, self.st.st_uid, self.st.st_gid )
+				val = SVal( self.rootStor, val, 0o644, self.st.st_uid, self.st.st_gid )
 			val.stor = self
 
 		val.setName( key )
@@ -495,7 +506,7 @@ class Stor( SItem, dict ):
 				if self.name:
 					v.setPath( "/" + self.name )
 				else:
-					raise ISException( programError, "Storage item has no name." )
+					raise IKException( ErrorCode.programError, "Storage item has no name." )
 
 	def setStorageRef( self, ref ):
 		super( Stor, self ).setStorageRef( ref )
@@ -556,7 +567,7 @@ class Stor( SItem, dict ):
 		elif itemType == EnumMode.all:
 			cnt = self.numItems( EnumMode.tokensAll ) + self.numItems( EnumMode.sectionsAll )
 		else:
-			raise ISException()
+			raise IKException()
 		return cnt
 
 	def getSItemAttr( self, path, attrName = None ):
@@ -579,10 +590,12 @@ class Stor( SItem, dict ):
 	def getSection( self, path ):
 		if path:
 			if path[0] not in self.keys() or not isinstance( self[path[0]], baseSectType ):
-				raise ISException( objectNotExists, path[0], "Section doesn't exist" )
+				raise IKException( ErrorCode.objectNotExists, path[0], "Section doesn't exist" )
 			if len( path ) > 1:
 				return self[path[0]].getSection( path[1:] )
 			else:
+				if not isinstance( self[path[0]], Stor ):
+					raise IKException( ErrorCode.objectAlreadyExists, path[0], "The item is not a section")
 				return self[path[0]]
 
 		return self
@@ -590,10 +603,10 @@ class Stor( SItem, dict ):
 		if not self.name == path:
 			curname, _, path = path.partition( '/' )
 			if curname != self.name:
-				raise ISException( objectNotExists, curname + '/' + path, "Section doesn't exist" )
+				raise IKException( ErrorCode.objectNotExists, curname + '/' + path, "Section doesn't exist" )
 			sec, _, path = path.partition( '/' )
 			if sec not in self.keys():
-				raise ISException( objectNotExists, path, "Section doesn't exist" )
+				raise IKException( ErrorCode.objectNotExists, path, "Section doesn't exist" )
 
 			return self[sec].getSection( path )
 
@@ -608,17 +621,17 @@ class Stor( SItem, dict ):
 		'''Creates new section.
 		sec - section string path'''
 		if not self.isPathValid( sec ):
-			raise ISException( unrecognizedParameter, sec, "Section name is not valid." )
+			raise IKException( ErrorCode.unrecognizedParameter, sec, "Section name is not valid." )
 		curname, _, path = sec.partition( '/' )
 		if not curname and self.name:
-			raise ISException( unrecognizedParameter, sec, "Section name is not valid." )
+			raise IKException( ErrorCode.unrecognizedParameter, sec, "Section name is not valid." )
 
 		if curname not in self.keys():
 			if self.name:
-				self[curname] = getstor()
+				self[curname] = getstor( rootStor = self.rootStor )
 				# self.markChanged()
 			else:
-				raise ISException( unrecognizedParameter, sec, "Section doesn't exist." )
+				raise IKException( ErrorCode.unrecognizedParameter, sec, "Section doesn't exist." )
 
 		if path:
 			return self[curname].createSection( path )
@@ -639,8 +652,8 @@ class Stor( SItem, dict ):
 		path, _, _ = parse_token( dest, False, False )
 		try:
 			sec = self.getSection( path )
-		except ISException as e:
-			if e.code == objectNotExists:
+		except IKException as e:
+			if e.code == ErrorCode.objectNotExists:
 				sec = self.createSection( dest )
 			else:
 				raise
@@ -659,11 +672,11 @@ class Stor( SItem, dict ):
 									path, nam, val[:100] if tok else val.val[:100] ) )
 
 		if not nam:
-			raise ISException( unknownDataFormat, tok )
+			raise IKException( ErrorCode.unknownDataFormat, tok )
 		try:
 			sec = self.getSection( path )
-		except ISException as e:
-			if e.code == objectNotExists:
+		except IKException as e:
+			if e.code == ErrorCode.objectNotExists:
 				sec = self.createSection( "/".join( path ) )
 			else:
 				raise
@@ -673,7 +686,7 @@ class Stor( SItem, dict ):
 	def insertNamVal( self, nam, val, addMode = defs.noOverwrite, attrs = None ):
 		if nam in self.keys():
 			if addMode == defs.noOverwrite:
-				raise ISException( valueAlreadyExists, nam )
+				raise IKException( ErrorCode.valueAlreadyExists, nam )
 			if addMode == defs.sumUp:
 				s = self[nam]
 				if reNumber.match( s ) and reNumber.match( val ):
@@ -684,7 +697,7 @@ class Stor( SItem, dict ):
 				else:
 					val = s + val
 			elif not isinstance( val, SVal ):
-				val = SVal( name = nam, attrs = attrs, val = val )
+				val = SVal( rootStor = self.rootStor, name = nam, attrs = attrs, val = val )
 		self[nam] = val
 		return self
 		# self.markChanged()
@@ -696,7 +709,7 @@ class Stor( SItem, dict ):
 		logtok.debug( "[tok: {0}]:  path: {1} ; nam: {2}".format( tok, path, nam ) )
 
 		if not ( nam ):
-			raise ISException( unknownDataFormat, tok )
+			raise IKException( ErrorCode.unknownDataFormat, tok )
 
 		sec = self.getSection( path )
 		return sec.getSVal( nam )
@@ -709,21 +722,21 @@ class Stor( SItem, dict ):
 
 	def getSVal( self, nam ):
 		if nam not in self.keys():
-			raise ISException( objectNotExists, nam )
+			raise IKException( ErrorCode.objectNotExists, nam )
 		return self.get( nam )
 
 	def removeToken( self, tok ):
 		path, nam, _ = parse_token( tok, bVal = False )
 
 		if not ( nam ):
-			raise ISException( unknownDataFormat, tok )
+			raise IKException( ErrorCode.unknownDataFormat, tok )
 
 		sec = self.getSection( path )
 		return sec.deleteNam( nam )
 
 	def deleteNam( self, nam ):
 		if nam not in self.keys():
-			raise ISException( valueNotExists, nam )
+			raise IKException( ErrorCode.valueNotExists, nam )
 		del self[nam]
 		return self
 		# self.markChanged()
@@ -820,7 +833,27 @@ class Stor( SItem, dict ):
 			else:
 				lres.append( self.path + "/" + self.name + "/" + n + "=" + v )
 
-	def serialize( self, fhd, read = True, addMode = defs.noOverwrite, relPath = None, fpath = None, indent = 0 ):
+	def serialize( self, fhd, read = True, addMode = defs.noOverwrite, relPath = None, 
+				fpath = None, indent = 0 ):
+		if self.storageRef != self:
+			raise IKException( ErrorCode.programError, self.pathName(), "serialize() called on non-root of backing storage." )
+
+		if read == True:
+			if addMode == defs.clean:
+				self.clear()
+
+			oldRoot = self.rootStor
+			self.rootStor = self
+			self._serialize( fhd=fhd, read=read, addMode=addMode, relPath=relPath,
+								fpath=fpath )
+			self.rootStor = oldRoot
+		else:
+			self._serialize( fhd=fhd, read=read, addMode=addMode, relPath=relPath,
+								fpath=fpath )
+			
+		
+	def _serialize( self, fhd, read = True, addMode = defs.noOverwrite, relPath = None, 
+				fpath = None, indent = 0 ):
 		'''Reads tokens from or writes to backing storage.'''
 		logsr.debug( "Stor.ser() is called..." )
 		if relPath and relPath[-1] != '/': relPath += '/'
@@ -845,20 +878,21 @@ class Stor( SItem, dict ):
 				else:
 					fpath = fname
 				if not os.path.isfile( fpath ):
-					raise ISException( objectNotExists, fpath, "Included file not found:" )
+					raise IKException( ErrorCode.objectNotExists, fpath, "Included file not found:" )
 				if fpath in fhd:
 					# File is read more than once.
 					# fh = fhd[fpath]
-					raise ISException( valueAlreadyExists, fpath, "Data file is referenced more than once" )
+					raise IKException( ErrorCode.valueAlreadyExists, fpath, "Data file is referenced more than once" )
 
 				logsr.debug( "haDaDir() opens file {0}".format( fpath ) )
 				fhd[fpath] = open( fpath, "rb" )
-				logsr.debug( "haDaDir() creates section {0}".format( curPath + sect ) )
-				sec = self.createSection( curPath + sect )
+				logsr.debug( "haDaDir() creates section {0}".format( 
+												self.rootStor.pathName() + "/" + sect ) )
+				sec = self.rootStor.createSection( sect )
 				logsr.debug( "haDaDir() sets section's persPath to {0}".format( fpath ) )
 				sec.setAttr( SItem.Attrs.persPath.name, fname )
 				logsr.debug( "haDaDir() calls section's serialize()" )
-				sec.serialize( fhd = fhd, read = read, addMode = addMode )
+				sec._serialize( fhd = fhd, read = read, addMode = addMode )
 
 		def readNonToken( continued = None ):
 			'''Reads non-token lines: section names, data directives'''
@@ -914,7 +948,8 @@ class Stor( SItem, dict ):
 				while readNonToken():
 					readEmptyLines()
 				# readToken()
-				tok = SVal( val = None, mode = 0o644, uid = self.st.st_uid, gid = self.st.st_gid )
+				tok = SVal( rootStor = self.rootStor, val = None, mode = 0o644, 
+						uid = self.st.st_uid, gid = self.st.st_gid )
 				tok.setStorageRef( self.storageRef )
 				fhd["cur"] = fh
 				res = tok.serialize( fhd, read )
@@ -954,7 +989,7 @@ class Stor( SItem, dict ):
 			for _, v in self:
 				fhd["cur"] = fh
 				logsr.debug( "{0}Stor {1}: writing section {2}".format( " "*indent, self.pathName(), v.pathName() ) )
-				v.serialize( fhd, read = read, relPath = relPath, indent = indent + 4 )
+				v._serialize( fhd, read = read, relPath = relPath, indent = indent + 4 )
 
 			self.changed = False
 
@@ -985,8 +1020,8 @@ class Stor( SItem, dict ):
 			m['avg_value_length'] = round( m['avg_value_length'] / m['num_of_tokens'], 2 )
 		return m
 
-def getstor( name = '', mode = 0o755, gid = None, uid = None ):
-	return Stor( name = name, mode = mode, gid = gid, uid = uid )
+def getstor( rootStor, name = '', mode = 0o755, gid = None, uid = None ):
+	return Stor( rootStor = rootStor, name = name, mode = mode, gid = gid, uid = uid )
 
 def isPathPers( path ):
 	if path.startswith( PERSPATH ):
@@ -1012,7 +1047,7 @@ def read_tokens_from_lines( lines, stok, addMode = defs.noOverwrite ):
 		if curTok:
 			mtok = reTok.match( curTok )
 			if not mtok or mtok.lastindex != 2:
-				raise ISException( unknownDataFormat, l, "Cannot parse token." )
+				raise IKException( ErrorCode.unknownDataFormat, l, "Cannot parse token." )
 			stok.addToken( curPath + curTok, addMode )
 			curTok = None
 
@@ -1035,7 +1070,7 @@ def read_tokens_from_lines( lines, stok, addMode = defs.noOverwrite ):
 		m = reMlTok.match( l )
 		if m:
 			if not curTok:
-				raise ISException( unknownDataFormat, l, "Cannot parse token." )
+				raise IKException( ErrorCode.unknownDataFormat, l, "Cannot parse token." )
 			curTok += stripOne( m.group( 1 ), False, True, '\n' )
 			continue
 
@@ -1046,7 +1081,7 @@ def read_tokens_from_lines( lines, stok, addMode = defs.noOverwrite ):
 def read_sec_file( filename, cmd, tok, addMode = defs.noOverwrite ):
 	if not os.path.exists( filename ):
 		log.error( "Cannot find encrypted data file. Exiting." )
-		raise ISException( operationFailed, "File not found." )
+		raise IKException( ErrorCode.operationFailed, "File not found." )
 
 	try:
 		cmd = cmd.replace( "FILENAME", "{0}" )
@@ -1054,7 +1089,7 @@ def read_sec_file( filename, cmd, tok, addMode = defs.noOverwrite ):
 							shell = True, stderr = subprocess.DEVNULL )
 	except subprocess.CalledProcessError as e:
 		log.error( ftxt )
-		raise ISException( operationFailed, e.output )
+		raise IKException( ErrorCode.operationFailed, e.output )
 
 	ftxt = ftxt.decode( 'utf-8' )
 	ltxt = ftxt.split( "\n" )
@@ -1068,7 +1103,7 @@ def read_tokens_from_file( filename, tok, addMode = defs.noOverwrite ):
 	file or if the section name is not specified, tokens are loaded into the root section.
 	'''
 	if not os.path.exists( filename ):
-		raise ISException( objectNotExists, filename, "File with tokens is not found." )
+		raise IKException( ErrorCode.objectNotExists, filename, "File with tokens is not found." )
 
 	with open( filename ) as f:
 		lines = f.readlines()
@@ -1084,7 +1119,7 @@ def read_locked( fd, cp, addMode = defs.noOverwrite ):
 
 		read_tokens_from_lines( l, cp, addMode )
 	except OSError as e:
-		raise ISException( operationFailed, e.strerror )
+		raise IKException( ErrorCode.operationFailed, e.strerror )
 
 def write_locked( fd, tok ):
 	try:
@@ -1104,7 +1139,7 @@ def write_locked( fd, tok ):
 		fd.write( s )
 		fd.flush()
 	except OSError as e:
-		raise ISException( operationFailed, e.strerror )
+		raise IKException( ErrorCode.operationFailed, e.strerror )
 
 # Items manipulation commands (with "Item" or "Section" in name) must receive
 # the path argument in the form of directories list.
@@ -1116,24 +1151,24 @@ def insertItem( m, path, nam, val, noOverwrite = True ):
 			curmap[k] = getstor( k )
 		curmap = curmap[k]
 	if nam in curmap and noOverwrite:
-		raise ISException( valueAlreadyExists, "/".join( path ) + "/" + nam )
+		raise IKException( ErrorCode.valueAlreadyExists, "/".join( path ) + "/" + nam )
 	curmap[nam] = val
 
 def getItem( m, path, nam ):
 	curmap = m
 	for k in path:
 		if k not in curmap:
-			raise ISException( valueNotExists, k )
+			raise IKException( ErrorCode.valueNotExists, k )
 		curmap = curmap[k]
 	if nam not in curmap:
-		raise ISException( valueNotExists, nam )
+		raise IKException( ErrorCode.valueNotExists, nam )
 	return curmap[nam]
 
 def getSection( m, path ):
 	curmap = m
 	for k in path:
 		if k not in curmap:
-			raise ISException( valueNotExists, k )
+			raise IKException( ErrorCode.valueNotExists, k )
 		curmap = curmap[k]
 	return curmap
 
@@ -1142,7 +1177,7 @@ def removeItem( m, path, num = 0 ):
 		return
 	key = path[num]
 	if key not in m:
-		raise ISException( valueNotExists, key )
+		raise IKException( ErrorCode.valueNotExists, key )
 
 	if len( path ) == num + 1:
 		del m[key]
@@ -1186,7 +1221,7 @@ def add_token( cp, tok, noOverwrite = True ):
 	path, nam, val = parse_token( tok )
 
 	if not ( nam and val ):
-		raise ISException( unknownDataFormat, tok )
+		raise IKException( ErrorCode.unknownDataFormat, tok )
 
 	insertItem( cp, path, nam, val, noOverwrite )
 
@@ -1194,7 +1229,7 @@ def get_token( cp, tok ):
 	path, nam, _ = parse_token( tok, bVal = False )
 
 	if not nam:
-		raise ISException( unknownDataFormat, tok )
+		raise IKException( ErrorCode.unknownDataFormat, tok )
 
 	return getItem( cp, path, nam )
 
@@ -1202,7 +1237,7 @@ def remove_token( cp, tok ):
 	path, nam, _ = parse_token( tok, bVal = False )
 
 	if not nam:
-		raise ISException( unknownDataFormat, tok )
+		raise IKException( ErrorCode.unknownDataFormat, tok )
 
 	removeItem( cp, path + [nam] )
 

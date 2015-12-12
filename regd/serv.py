@@ -10,29 +10,30 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-04 08:16:45"
+__lastedited__ = "2015-12-12 22:13:04"
 
-import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading
+import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading, io
 import ipaddress, shutil
 import regd.util as util, regd.defs as defs
-from regd.util import log, ISException, permissionDenied, persistentNotEnabled, \
-	operationFailed, sigHandler, unrecognizedParameter, \
-	unrecognizedSyntax, composeResponse, objectNotExists, unknownDataFormat
+from regd.util import log, composeResponse	
+from regd.app import IKException, ErrorCode, sigHandler
 from regd.stor import read_sec_file, remove_section, getstor
 import regd.stor as stor
 import regd.app as app
+import regd.tok as modtok
 from regd.defs import *  # @UnusedWildImport
 
 lock_seriz = threading.Lock()
 
 class RegdServer:
-	def __init__( self, servername, sockfile, host, port, acc, datafile ):
+	def __init__( self, servername, sockfile, host, port, acc, datafile, binsecfile=None ):
 		self.servername = servername
 		self.sockfile = sockfile
 		self.host = host
 		self.port = port
 		self.acc = acc
 		self.datafile = datafile
+		self.binsecfile = binsecfile
 		self.sock = None
 		self.disposed = False
 
@@ -41,18 +42,34 @@ class RegdServer:
 		self.stat["tokens"] = {}
 		self.stat["commands"] = {}
 		self.mcmd = self.stat["commands"]
-		self.tokens = getstor()
-		self.sectokens = getstor()
-		self.perstokens = getstor()
-		self.fs = getstor()
-		self.secfs = getstor()
-		self.fs[''] = getstor()
+		
+		self.fs 		= getstor( rootStor=None )
+		
+		self.tokens 	= getstor( rootStor=None )
+		self.perstokens = getstor( rootStor=None )
+		self.bintokens 	= getstor( rootStor = None)
+		
+		self.fs[''] = getstor(rootStor=None)
 		self.fs[''][stor.SESNAME] = self.tokens
+		# Persistent tokens
 		self.fs[''][stor.PERSNAME] = self.perstokens
 		if datafile:
-			self.fs.setSItemAttr( "/sav", ( "{0}={1}".format( 
-					stor.SItem.Attrs.persPath.name, datafile ), ) )  # @UndefinedVariable
-		self.secfs[''] = getstor()
+			self.fs.setSItemAttr( stor.PERSPATH, ( "{0}={1}".format( 
+					stor.SItem.persPathAttrName, datafile ), ) )
+		# Bin section tokens
+		self.fs[''][stor.BINNAME] = self.bintokens
+		if binsecfile:
+			self.fs.setSItemAttr( stor.BINPATH, ( "{0}={1}".format( 
+					stor.SItem.persPathAttrName, binsecfile ), ) )
+			
+		self.tokens.rootStor 		= self.tokens
+		self.perstokens.rootStor 	= self.perstokens
+		self.bintokens.rootStor 	= self.bintokens
+		
+		self.sectokens = getstor(rootStor=None)
+		self.secfs = getstor(rootStor=None)	
+			
+		self.secfs[''] = getstor(rootStor=None)
 		self.secfs[''][stor.SESNAME] = self.tokens
 		self.secfs[''][stor.PERSNAME] = self.perstokens
 		self.timestarted = None
@@ -73,8 +90,6 @@ class RegdServer:
 		app.read_conf( d )
 		if "encfile" in d:
 			self.encFile = d["encfile"]
-		if "token_separator" in d:
-			self.itemsSep = d["token_separator"]
 		if "encfile_read_cmd" in d:
 			self.secTokCmd = d["encfile_read_cmd"]
 		if host and "trusted_ips" in d:
@@ -100,33 +115,32 @@ class RegdServer:
 					self.trustedUserids.append( uid )
 
 		if self.datafile:
-			'''
-			# Obtaining the lock
-			try:
-				self.data_fd = open( self.datafile, "r+b", buffering=1 )
-				#log.debug("Data file fileno: %i" % (self.data_fd.fileno()))
-				#fcntl.lockf( self.data_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB )
-			except OSError as e:
-				print("Error: data file \"{0}\" could not be opened: {1}".format(datafile, e.strerror),
-				"Server is not started.")
-				raise ISException(operationFailed)
-		else:
-			print( "Server's data file is not specified. Persistent tokens are not enabled.")
-
-		if self.data_fd:
-		'''
 			try:
 				fhd = {'cur':None}
 				stor.treeLoad = True
-				self.fs['']['sav'].serialize( fhd, read = True )
+				self.fs[''][stor.PERSNAME].serialize( fhd, read = True )
 				stor.treeLoad = False
 				for v in fhd.values():
 					if v: v.close()
 				# read_locked( self.data_fd, self.perstokens, defs.overwrite )
 				# self.data_fd.close()
-			except ISException as e:
+			except IKException as e:
 				log.error( "Cannot read the data file: %s" % ( str( e ) ) )
-				raise ISException( operationFailed )
+				raise IKException( ErrorCode.operationFailed )
+		else:
+			print( "Server's data file is not specified. Persistent tokens are not enabled.")
+			
+		if self.binsecfile:
+			try:
+				fhd = {'cur':None}
+				stor.treeLoad = True
+				self.fs[''][stor.BINNAME].serialize( fhd, read = True )
+				stor.treeLoad = False
+				for v in fhd.values():
+					if v: v.close()
+			except IKException as e:
+				log.error( "Cannot read the bin_section file: %s" % ( str( e ) ) )
+				raise IKException( ErrorCode.operationFailed )
 
 		def signal_handler( signal, frame ):
 			self.sock.close()
@@ -166,12 +180,12 @@ class RegdServer:
 				if self.servername and self.servername != "regd":
 					s = "ps -ef | grep '{0}(/cli.py)? start .*{1} {2}' | grep -v grep".format( 
 												app.APPNAME,
-												util.clp( defs.SERVER_NAME ),
+												app.clp( defs.SERVER_NAME ),
 												self.servername )
 				else:
 					s = "ps -ef | grep -E '{0}(/cli.py)? start' | grep -v '{1}' | grep -v grep".format( 
 												app.APPNAME,
-												util.clc( defs.SERVER_NAME ) )
+												app.clc( defs.SERVER_NAME ) )
 
 
 				res = subprocess.check_output( s, shell = True ).decode( 'utf-8' )
@@ -238,6 +252,7 @@ class RegdServer:
 					log.error( "Socket file {0} is gone. Exiting.".format( self.sockfile ) )
 					self.cont = False
 					self.exitcode = 1
+					connection = None
 				else:
 					if self.datafile:
 						# TODO: in thread
@@ -248,6 +263,7 @@ class RegdServer:
 
 			except Exception as e:
 				print( "Exception occured: ", e )
+				connection = None
 				self.cont = False
 
 			if not self.cont:
@@ -265,7 +281,7 @@ class RegdServer:
 		client_address = args[1]
 		try:
 			self._handle_connection( connection, client_address )
-		except ISException as e:
+		except IKException as e:
 			log.error( ( "Exception while handling connection. Continuing loop."
 						"Client: %s ; Exception: %s" ) % ( client_address, e ) )
 
@@ -346,9 +362,9 @@ class RegdServer:
 						perm = True
 		log.debug( "perm: {0}".format( perm ) )
 		if not perm:
-			composeResponse( bresp, "0", str( ISException( permissionDenied, cmd ) ) )
+			composeResponse( bresp, "0", str( IKException( ErrorCode.permissionDenied, cmd ) ) )
 		elif not self.datafile and util.getSwitches( cmdOptions, PERS )[0]:
-			composeResponse( bresp, "0", str( ISException( persistentNotEnabled ) ) )
+			composeResponse( bresp, "0", str( IKException( ErrorCode.persistentNotEnabled ) ) )
 		elif not len( bresp ):
 			self.mcmd[cmd] = 1 if cmd not in self.mcmd else self.mcmd[cmd] + 1
 
@@ -416,8 +432,8 @@ class RegdServer:
 					try:
 						self.fs.getSItem( fpar )
 						composeResponse( bresp )
-					except ISException as e:
-						if e.code == objectNotExists:
+					except IKException as e:
+						if e.code == ErrorCode.objectNotExists:
 							composeResponse( bresp, "0" )
 						else:
 							raise
@@ -438,6 +454,7 @@ class RegdServer:
 					'''Set attributes of a storage item.
 					Syntax: SETATTR <itempath> <attrname=attrval ...>'''
 					item = self.fs.setSItemAttr( fpar, optmap[ATTRS] )
+					item.markChanged()
 
 					# When the backing storage path attribute is set, the storage file
 					# is overwritten with the current content of the item. In order to
@@ -455,7 +472,7 @@ class RegdServer:
 						try:
 							n = int( spar )
 						except ValueError as e:
-							raise ISException( unrecognizedParameter, spar,
+							raise IKException( ErrorCode.unrecognizedParameter, spar,
 								moreInfo = "Number of lines only must contain digits." )
 					composeResponse( bresp, '1', util.getLog( n ) )
 
@@ -477,15 +494,15 @@ class RegdServer:
 					dest = None
 					addMode = defs.noOverwrite
 					if not fpar:
-						raise ISException( unrecognizedSyntax, moreInfo = "No items specified." )
+						raise IKException( ErrorCode.unrecognizedSyntax, moreInfo = "No items specified." )
 					if DEST in optmap:
 						if not len( optmap[DEST] ) or not self.fs.isPathValid( optmap[DEST][0] ):
-							raise ISException( unrecognizedParameter,
+							raise IKException( ErrorCode.unrecognizedParameter,
 									moreInfo = "Parameter '{0}' must contain a valid section name.".format( DEST ) )
 						dest = optmap[DEST][0]
 					if PERS in optmap:
 						if dest:
-							raise ISException( unrecognizedSyntax,
+							raise IKException( ErrorCode.unrecognizedSyntax,
 									moreInfo = "{0} and {1} cannot be both specified for one command.".format( 
 																					DEST, PERS ) )
 						dest = stor.PERSPATH
@@ -502,24 +519,29 @@ class RegdServer:
 						log.debug( "dest: {0} .".format( dest ) )
 						cnt = 0
 						for tok in cmdData:
-							# Without --dest or --pers options tokens are always added to /ses
+							# Without --dest or --pers options tokens with relative path
+							# are always added to /ses
 							if not dest and tok[0] != '/' and cmd != ADD_TOKEN_SEC:
 								dest = stor.SESPATH
 
 							binaryVal = None
 							if defs.BINARY in optmap:
 								if not optmap[defs.BINARY] or len( optmap[defs.BINARY] ) < cnt + 1:
-									raise ISException( unknownDataFormat, tok )
+									raise IKException( ErrorCode.unknownDataFormat, tok )
 								binaryVal = optmap[defs.BINARY][cnt]
 								attrs[stor.SItem.Attrs.encoding.name] = defs.BINARY  # @UndefinedVariable
 								cnt += 1
 							sec = None
 							if cmd == ADD_TOKEN:
+								if (dest and dest.startswith( stor.BINPATH ) ) or \
+										tok.startswith( stor.BINPATH ):
+									self.handleBinToken( dest, tok, optmap )
+									continue
 								if dest:
 									sec = self.fs.addTokenToDest( dest, tok, addMode, binaryVal, attrs = attrs )
 								else:
 									sec = self.fs.addToken( tok, addMode, binaryVal, attrs = attrs )
-							else:
+							else: # ADD_TOKEN_SEC
 								if dest:
 									sec = self.sectokens.addTokenToDest( dest, tok, addMode, binaryVal, attrs = attrs )
 								else:
@@ -531,20 +553,24 @@ class RegdServer:
 
 					elif cmd == LOAD_FILE:
 						'''Load tokens from a file.'''
+						if not dest:
+							dest = stor.SESPATH
+							
 						log.debug( "from_pars: {0}; dest: {1} .".format( swFromPars, dest ) )
 
 						if not swFromPars:
 							for filename in cmdData:
 								if os.path.exists( filename ):
-									stor.read_tokens_from_file( filename, self.fs, addMode )
+									#stor.read_tokens_from_file( filename, self.fs, addMode )
+									self.fs.readFromFile( filePath=filename, dest = dest)
 								else:
-									raise ISException( objectNotExists, filename, "File not found" )
+									raise IKException( ErrorCode.objectNotExists, filename, "File not found" )
 						else:
-							if not dest:
-								dest = stor.SESPATH
-							stok = self.fs.getSectionFromStr( dest )
+							#stok = self.fs.getSectionFromStr( dest )
 							for file in cmdData:
-								stor.read_tokens_from_lines( file.split( '\n' ), stok, addMode )
+								#stor.read_tokens_from_lines( file.split( '\n' ), stok, addMode )
+								fh = io.BytesIO( file.encode() )
+								self.fs.readFromFile( fh=fh, dest=dest )
 
 						composeResponse( bresp )
 
@@ -571,7 +597,7 @@ class RegdServer:
 						composeResponse( bresp, '1', ret )
 
 
-				elif cmd in ( GET_TOKEN, REMOVE_TOKEN, CREATE_SECTION, REMOVE_SECTION, RENAME ):
+				elif cmd in ( GET_ITEM, REMOVE_TOKEN, CREATE_SECTION, REMOVE_SECTION, RENAME ):
 					if fpar[0] != '/' or not self.fs.isPathValid( fpar ):
 						fpar = "{0}/{1}".format( stor.PERSPATH if swPers else stor.SESPATH, fpar )
 					elif stor.isPathPers( fpar ):
@@ -579,7 +605,7 @@ class RegdServer:
 
 					log.debug( "pers: {0} ; fpar: {1}".format( swPers, fpar ) )
 
-					if cmd == GET_TOKEN:
+					if cmd == GET_ITEM:
 						composeResponse( bresp, '1', self.fs.getTokenVal( fpar ) )
 						log.debug( "response: {0} ".format( bresp ) )
 					else:
@@ -631,15 +657,15 @@ class RegdServer:
 					composeResponse( bresp )
 
 				elif cmd == CLEAR_SEC:
-					self.sectokens = getstor()
+					self.sectokens = getstor(self.sectokens.rootStor)
 					composeResponse( bresp )
 
 				elif cmd == CLEAR_SESSION:
-					self.sectokens = getstor()
-					self.tokens = getstor()
+					self.sectokens = getstor(self.sectokens.rootStor)
+					self.tokens = getstor(self.tokens.rootStor)
 					composeResponse( bresp )
 
-			except ISException as e:
+			except IKException as e:
 				composeResponse( bresp, '0', str( e ) )
 			except Exception as e:
 				composeResponse( bresp, '0', e.args[0] )
@@ -656,8 +682,8 @@ class RegdServer:
 
 		if cmd == STOP_SERVER and perm:
 			log.info( "Stopping server." )
-			if self.sockfile:
-				os.unlink( self.sockfile )
+			#if self.sockfile:
+			#	os.unlink( self.sockfile )
 			self.cont = False
 			signal.alarm( 1 )
 
@@ -678,27 +704,42 @@ class RegdServer:
 
 	def serialize( self ):
 		'''Serializing persistent tokens.'''
-		if not len( stor.changed ):
+		if not stor.changed:
 			return
 		with stor.lock_changed:
 			ch_ = stor.changed[:]
 			stor.changed = []
-		commonPath = os.path.commonpath( [x.pathName() for x in ch_] )
-		if commonPath == "/": commonPath = stor.PERSPATH
-		if not commonPath.startswith( stor.PERSPATH ):
-			return
-		sec = self.fs.getSectionFromStr( commonPath )
-		fhd = {}
-		sec.serialize( fhd, read = False )
-		for fpath, fh in fhd.items():
-			if fpath == "cur":
+		# Finding a common path separately for each serializable root
+		for r in stor.serializable_roots:
+			l = [x.pathName() for x in ch_ if x.pathName().startswith( r )]
+			if not l:
 				continue
-			fh.close()
-			shutil.move( fpath, fpath[:-4] )
+			commonPath = os.path.commonpath( l )
+			sec = self.fs.getSectionFromStr( commonPath )
+			fhd = {}
+			sec.serialize( fhd, read = False )
+			for fpath, fh in fhd.items():
+				if fpath == "cur":
+					continue
+				fh.close()
+				shutil.move( fpath, fpath[:-4] )
+				
+	def handleBinToken(self, dest, tok, optmap):
+		if dest:
+			tok = os.path.join( dest, tok )
+		path, nam, val = modtok.parse_token( tok, bNam=True, bVal=True)
+		sec = self.fs.getSection( path )
+		exefile = sec.getSVal( nam )
+		log.debug( "Calling: " + exefile.val + " " + val )
+		if tok.startswith(stor.BINPATH + "/sh/"):
+			subprocess.call( exefile.val + " " + val, shell=True )
+		else:
+			subprocess.call( [exefile.val, val], shell=False )
 
 
-def Server( servername, sockfile = None, host = None, port = None, acc = defs.PL_PRIVATE, datafile = None ):
-	srv = RegdServer( servername, sockfile, host, port, acc, datafile )
+def Server( servername, sockfile = None, host = None, port = None, acc = defs.PL_PRIVATE, 
+		datafile = None, binsecfile = None ):
+	srv = RegdServer( servername, sockfile, host, port, acc, datafile, binsecfile )
 	srv.start_loop()
 	srv.close()
 
