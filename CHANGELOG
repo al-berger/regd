@@ -1,4 +1,8 @@
-Version 0.6.0 (2015-07-..)
+Version 0.6.1 (2015-12-..)
+---------------------------
+- /bin section (running commands)
+
+Version 0.6.0 (2015-11-25)
 ---------------------------
 New features:
 - Directory-like tokens organisation structure
