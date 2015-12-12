@@ -10,10 +10,10 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-04 07:54:40"
+__lastedited__ = "2015-12-07 08:33:39"
 
-from regd.util import logtok, ISException, unknownDataFormat
-import regd.util as util
+from regd.util import logtok
+from regd.app import IKException, ErrorCode
 
 def stripOne( s, l = False, r = False, ch = ' ' ):
 	if not s:
@@ -78,7 +78,44 @@ def escapedpart( tok, sep, second = False ):
 
 	return ( l, r )
 
-def parse_token( tok_, bNam = True, bVal = True ):
+def parse_token( tok, bNam = True, bVal = True ):
+	'''Parse token with the specified structure'''
+	if bVal:
+		p, val = escapedpart( tok, "=" )
+		if not val:
+			raise IKException( ErrorCode.unknownDataFormat, tok, "Cannot parse token" )
+		p = stripOne( p, False, True ) if p else None
+		val = stripOne( val, True, False ) if val else None
+	else:
+		p = tok.replace( "\\=", "=" )
+		val = None
+		
+	if bNam:
+		p, s, nam = p.rpartition('/')
+		if s:
+			nam = stripOne( nam, True, False )
+			p = stripOne( p, False, True )
+		p = p if p else None
+		nam = nam if nam else None
+	else:
+		nam = None
+	
+	path = []
+	if tok[0] == '/':
+		path.append( '' )
+		
+	while p:
+		p_, s, p = p.partition( '/' )
+		if s:
+			p_ = stripOne( p_, False, True )
+			p = stripOne( p, True, False )
+
+		if p_: path.append( p_ )
+		
+	return path, nam, val
+
+				
+def parse_token_old( tok_, bNam = True, bVal = True ):
 	tok = tok_
 	logtok.debug( "tok: {0}".format( tok ) )
 	path = []
@@ -94,7 +131,7 @@ def parse_token( tok_, bNam = True, bVal = True ):
 			# Null character as a subdirectory name is not allowed
 			if not len( sec ) and len( path ):
 				if tok:
-					raise ISException( unknownDataFormat, tok_, "Null character as a section name." )
+					raise IKException( ErrorCode.unknownDataFormat, tok_, "Null character as a section name." )
 				break
 			# One whitespace before and after separator is not part of the token
 			sec = stripOne( sec, False, True )
@@ -220,7 +257,7 @@ class TokenFeeder:
 
 	def setMode( self, mode ):
 		if mode < 1 or mode > 6:
-			raise util.ISException( util.unrecognizedParameter )
+			raise IKException( ErrorCode.unrecognizedParameter )
 		self.mode = mode
 
 
