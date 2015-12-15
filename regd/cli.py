@@ -453,8 +453,8 @@ def main( *kwargs ):
 			if os.path.isfile( os.path.join( DATADIR, "bin_section") ):
 				binsect = os.path.join( DATADIR, "bin_section" )
 
-		log.info( "Starting %s server %s : %s " % ( args.access,
-						( servername, host )[bool( host )], ( _sockfile, port )[bool( host )] ) )
+		log.info( "Starting server %s : %s, access: %s " % (( servername, host )[bool( host )], 
+								( _sockfile, port )[bool( host )], oct(args.access) ) )
 		return serv.Server( servername, _sockfile, host, port, acc, datafile, binsect )
 
 	elif cmd == defs.STOP_SERVER:

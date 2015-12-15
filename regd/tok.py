@@ -10,10 +10,14 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-07 08:33:39"
+__lastedited__ = "2015-12-13 11:55:58"
 
+import re
 from regd.util import logtok
 from regd.app import IKException, ErrorCode
+import regd.defs as defs
+
+reEqS = re.compile( ".+(?<!\\\)=.+" )
 
 def stripOne( s, l = False, r = False, ch = ' ' ):
 	if not s:
@@ -78,9 +82,17 @@ def escapedpart( tok, sep, second = False ):
 
 	return ( l, r )
 
-def parse_token( tok, bNam = True, bVal = True ):
+def parse_token( tok, bVal = defs.auto ):
 	'''Parse token with the specified structure'''
-	if bVal:
+	if bVal == defs.auto:
+		bVal = defs.no
+		if reEqS.match( tok ):
+			bVal = defs.yes
+	elif bVal == defs.no:
+		if reEqS.match( tok ):
+			raise IKException( ErrorCode.unknownDataFormat, tok, "Unescaped equal sign in token path." )
+	
+	if bVal == defs.yes:
 		p, val = escapedpart( tok, "=" )
 		if not val:
 			raise IKException( ErrorCode.unknownDataFormat, tok, "Cannot parse token" )
@@ -90,16 +102,6 @@ def parse_token( tok, bNam = True, bVal = True ):
 		p = tok.replace( "\\=", "=" )
 		val = None
 		
-	if bNam:
-		p, s, nam = p.rpartition('/')
-		if s:
-			nam = stripOne( nam, True, False )
-			p = stripOne( p, False, True )
-		p = p if p else None
-		nam = nam if nam else None
-	else:
-		nam = None
-	
 	path = []
 	if tok[0] == '/':
 		path.append( '' )
@@ -112,7 +114,7 @@ def parse_token( tok, bNam = True, bVal = True ):
 
 		if p_: path.append( p_ )
 		
-	return path, nam, val
+	return path, val
 
 				
 def parse_token_old( tok_, bNam = True, bVal = True ):

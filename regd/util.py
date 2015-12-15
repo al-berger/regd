@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2015-12-09 12:47:09"
+__lastedited__ = "2015-12-15 13:13:45"
 
 import os, pwd, logging, re
 import regd.defs as defs
@@ -269,6 +269,8 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 
 	return cmd
 
+class SVal:...
+
 def composeResponse( bpack : 'out bytearray', code = '1', *args ):
 	'''Response message has hierachical recursive format and can have any number of nested
 	levels. Message logically consists of opaque data chunks (ODC) composed into objects with a
@@ -296,11 +298,13 @@ def composeResponse( bpack : 'out bytearray', code = '1', *args ):
 			bpack.extend( ( 'L' + str( len( ob ) ) + ' ' ).encode( 'utf-8' ) )
 			for item in ob:
 				packObject( item )
-		elif type( ob ) is dict:
+		elif isinstance( ob, dict ):
 			bpack.extend( ( 'D' + str( len( ob ) * 2 ) + ' ' ).encode( 'utf-8' ) )
 			for k, v in ob.items():
 				packObject( k )
 				packObject( v )
+		elif isinstance( ob, SVal ):
+			packObject( ob.val )
 		else:
 			ba = bytearray( str( ob ), encoding = 'utf-8' )
 			bpack.extend( ( 'S' + str( len( ba ) ) + ' ' ).encode( 'utf-8' ) )
@@ -479,7 +483,13 @@ def printObject( ob, ind = 0, endl = '\n' ):
 	else:
 		print( "{0}{1}".format( " " * ind, str( ob ) ), end = endl )
 
-def splitArgs( s ):
-	r = '(".+?"(?<!\\\)|\S+?) '
-	return [x for x in re.split( r, s ) if x]
-
+def joinPath(p1, p2):
+	if not (p1 or p2):
+		raise IKException( ErrorCode.unsupportedParameterValue, (p1, p2), "Path component is empty.")
+	if p2[0] == '/':
+		raise IKException( ErrorCode.unsupportedParameterValue, p2, "Middle path component begins with /")
+	if p1[-1] != '/':
+		p1 += '/'
+		
+	return p1 + p2
+	

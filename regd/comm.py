@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-11 14:44:49"
+__lastedited__ = "2015-12-14 07:48:37"
 
 import os, subprocess as sp, time
 import regd.defs as defs, regd.util as util, regd.cli as cli
@@ -165,7 +165,7 @@ class RegdComm:
 		return self.sendCmd( m, args, kwargs )
 
 	def getToken( self, nam, *args, **kwargs ):
-		m = { "cmd": defs.GET_TOKEN, "params": [nam] }
+		m = { "cmd": defs.GET_ITEM, "params": [nam] }
 		if "default" not in kwargs:
 			return self.sendCmd( m, args, kwargs )
 		else:
