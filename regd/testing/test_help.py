@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-12-04 07:54:41"
+__lastedited__ = "2015-12-14 07:54:05"
 
 
 import sys, os, argparse, logging, time, re, pwd
@@ -21,6 +21,7 @@ from configparser import ConfigParser
 # import regd
 import regd.util as util, regd.defs as defs, regd.stor as stor
 import regd.tok as tok
+import regd.app as app
 
 log = None
 tstconf = None
@@ -44,7 +45,7 @@ def regdcmd( cmd = None, data = None, servername = None, host = None, port = Non
 
 	try:
 		atuser, servername = util.parse_server_name( servername )
-	except util.ISException as e:
+	except app.IKException as e:
 		print( e )
 		return e.code
 
@@ -335,7 +336,7 @@ class TestReg:
 			time.sleep( 2 )
 		except sp.CalledProcessError as e:
 			print( rc, "start", "returned non-zero:", e.output )
-			raise util.ISException( util.operationFailed )
+			raise app.IKException( app.ErrorCode.operationFailed )
 
 	def sendCmd( self, *args_, **kwargs ):
 		'''Returns:
@@ -347,9 +348,9 @@ class TestReg:
 		if kwargs and "cmdOptions" in kwargs and kwargs["cmdOptions"]:
 			for opt in kwargs["cmdOptions"]:
 				if opt[1]:
-					args.append( "{0} {1}".format( util.clp( opt[0] ), opt[1] ) )
+					args.append( "{0} {1}".format( app.clp( opt[0] ), opt[1] ) )
 				else:
-					args.append( "{0}".format( util.clp( opt[0] ) ) )
+					args.append( "{0}".format( app.clp( opt[0] ) ) )
 
 		if self.servName:
 			args.append( sn )
@@ -438,7 +439,7 @@ class TestReg:
 			print( cmd, "failed: ", ret )
 			return False
 
-		cmd = clp( defs.GET_TOKEN )
+		cmd = clp( defs.GET_ITEM )
 		key = "{0}:{1}".format( s.replace( ":", "\:" ), n )
 
 		res, ret = self.sendCmd( cmd, key )
@@ -621,9 +622,9 @@ def begin_multiuser_test():
 			if treg.datafile != "None":
 				treg.do_token_cmd( "add-pers", tf, cmdOptions = [( defs.PERS, None )] )
 			log.info( "Checking tokens on the server..." )
-			treg.compare( defs.GET_TOKEN, cf )
+			treg.compare( defs.GET_ITEM, cf )
 			if treg.datafile != "None":
-				treg.compare( defs.GET_TOKEN, cf, cmdOpts = [( defs.PERS, None )] )
+				treg.compare( defs.GET_ITEM, cf, cmdOpts = [( defs.PERS, None )] )
 	except:
 		print( "Some errors occured. The multi user test has NOT been set up." )
 		return
@@ -651,7 +652,7 @@ def do_basic_test():
 
 	for treg in tregs:
 		treg.do_token_cmd( defs.ADD_TOKEN, tf )
-		treg.compare( defs.GET_TOKEN, cf )
+		treg.compare( defs.GET_ITEM, cf )
 		tf.reset()
 		cf.reset()
 
@@ -714,7 +715,7 @@ def basic_test_debug():
 	cf = ChecksFeeder( tokvalues, num = 5 )
 	tk = KeysFeeder( tokvalues, num = 5 )
 	treg.do_token_cmd( defs.ADD_TOKEN, tf )
-	treg.compare( defs.GET_TOKEN, cf )
+	treg.compare( defs.GET_ITEM, cf )
 	treg.do_token_cmd( defs.REMOVE_TOKEN, tk )
 
 def test_configure():
@@ -868,7 +869,7 @@ def main( *kwargs ):
 	args = parser.parse_args( *kwargs )
 
 	# Config file
-	CONFDIR = util.get_conf_dir()
+	CONFDIR = app.get_conf_dir()
 	if not os.path.exists( CONFDIR ):
 		try:
 			os.makedirs( CONFDIR )
