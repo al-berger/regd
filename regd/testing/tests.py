@@ -10,7 +10,7 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-__lastedited__ = "2015-12-04 07:54:42"
+__lastedited__ = "2015-12-14 07:56:58"
 
 import unittest, sys, os, pwd, logging, re, time
 from configparser import ConfigParser
@@ -199,7 +199,7 @@ class TokensTest( unittest.TestCase ):
 		log.info( "\nChecking tokens added to server..." )
 		tf.setMode( tok.TokenFeeder.modeKeyVal )
 		for treg in tregs:
-			self.assertTrue( treg.compare( defs.GET_TOKEN, tf, binary = False, fb = PrintDot( 10 ) ),
+			self.assertTrue( treg.compare( defs.GET_ITEM, tf, binary = False, fb = PrintDot( 10 ) ),
 				"Failed comparing tokens in registry {0} with original values.".format( 
 				treg.servName ) )
 		log.info( "\n%i tokens were checked." % ( len( tf ) ) )
@@ -231,7 +231,7 @@ class FilesTest( unittest.TestCase ):
 
 		# Upon starting the server should contain tokens from the 'datafile_lines'
 		for treg in tregs:
-			self.assertTrue( treg.compare( defs.GET_TOKEN, tf, binary = False,
+			self.assertTrue( treg.compare( defs.GET_ITEM, tf, binary = False,
 								cmdOpts = [( defs.PERS, None )], fb = PrintDot( 10 ) ),
 				"Failed comparing tokens in registry {0} with original values.".format( 
 				treg.servName ) )
@@ -256,13 +256,13 @@ class FilesTest( unittest.TestCase ):
 		# newly added tokens
 
 		for treg in tregs:
-			self.assertTrue( treg.compare( defs.GET_TOKEN, tf, binary = False,
+			self.assertTrue( treg.compare( defs.GET_ITEM, tf, binary = False,
 								cmdOpts = [( defs.PERS, None )], fb = PrintDot( 10 ) ),
 				"Failed comparing tokens in registry {0} with original values.".format( 
 				treg.servName ) )
 			s = input( "File test: datafile tokens checked." )
 			tf1.setMode( tok.TokenFeeder.modeKeyVal )
-			self.assertTrue( treg.compare( defs.GET_TOKEN, tf1, binary = False,
+			self.assertTrue( treg.compare( defs.GET_ITEM, tf1, binary = False,
 								cmdOpts = [( defs.PERS, None )], fb = PrintDot( 10 ) ),
 				"Failed comparing tokens in registry {0} with original values.".format( 
 				treg.servName ) )

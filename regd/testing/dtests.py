@@ -10,7 +10,7 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-__lastedited__ = "2015-12-04 07:54:41"
+__lastedited__ = "2015-12-14 07:54:20"
 
 import os, tempfile, unittest, logging, time
 import regd.defs as defs
@@ -56,7 +56,7 @@ class SerdataTest( unittest.TestCase ):
 							bparts = [x for x in fdata[5].split( b'\n' ) if x] )
 		log.info( "\nChecking tokens added to server..." )
 		tf.setMode( TokenFeeder.modeKeyVal )
-		self.assertTrue( treg.compare( defs.GET_TOKEN, tf, binary = False, fb = tests.PrintDot( 10 ) ),
+		self.assertTrue( treg.compare( defs.GET_ITEM, tf, binary = False, fb = tests.PrintDot( 10 ) ),
 				"Failed comparing tokens in registry {0} with original values.".format( 
 				treg.servName ) )
 		log.info( "\n%i tokens were checked." % ( len( tf ) ) )
@@ -69,7 +69,7 @@ class SerdataTest( unittest.TestCase ):
 		time.sleep( 2 )
 		log.info( "Starting server." )
 		treg.create()
-		res, ret = treg.sendCmd( defs.GET_TOKEN, secpath )
+		res, ret = treg.sendCmd( defs.GET_ITEM, secpath )
 		self.assertTrue( res and ret == "PPPP" )
 
 		tmpdirobj.cleanup()
