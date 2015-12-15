@@ -10,14 +10,14 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-12 22:13:04"
+__lastedited__ = "2015-12-13 18:31:55"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading, io
 import ipaddress, shutil
 import regd.util as util, regd.defs as defs
-from regd.util import log, composeResponse	
+from regd.util import log, composeResponse, joinPath
 from regd.app import IKException, ErrorCode, sigHandler
-from regd.stor import read_sec_file, remove_section, getstor
+from regd.stor import read_sec_file, getstor
 import regd.stor as stor
 import regd.app as app
 import regd.tok as modtok
@@ -43,23 +43,23 @@ class RegdServer:
 		self.stat["commands"] = {}
 		self.mcmd = self.stat["commands"]
 		
-		self.fs 		= getstor( rootStor=None )
+		self.fs 		= getstor( rootStor=None, mode=0o555 )
 		
-		self.tokens 	= getstor( rootStor=None )
-		self.perstokens = getstor( rootStor=None )
-		self.bintokens 	= getstor( rootStor = None)
+		self.tokens 	= getstor( rootStor=None, mode=0o777 )
+		self.perstokens = getstor( rootStor=None, mode=0o777 )
+		self.bintokens 	= getstor( rootStor = None, mode=0o777)
 		
-		self.fs[''] = getstor(rootStor=None)
+		self.fs[''] = getstor(rootStor=None, mode=0o555)
 		self.fs[''][stor.SESNAME] = self.tokens
 		# Persistent tokens
 		self.fs[''][stor.PERSNAME] = self.perstokens
 		if datafile:
-			self.fs.setSItemAttr( stor.PERSPATH, ( "{0}={1}".format( 
+			self.fs.setItemAttr( stor.PERSPATH, ( "{0}={1}".format( 
 					stor.SItem.persPathAttrName, datafile ), ) )
 		# Bin section tokens
 		self.fs[''][stor.BINNAME] = self.bintokens
 		if binsecfile:
-			self.fs.setSItemAttr( stor.BINPATH, ( "{0}={1}".format( 
+			self.fs.setItemAttr( stor.BINPATH, ( "{0}={1}".format( 
 					stor.SItem.persPathAttrName, binsecfile ), ) )
 			
 		self.tokens.rootStor 		= self.tokens
@@ -69,7 +69,7 @@ class RegdServer:
 		self.sectokens = getstor(rootStor=None)
 		self.secfs = getstor(rootStor=None)	
 			
-		self.secfs[''] = getstor(rootStor=None)
+		self.secfs[''] = getstor(rootStor=None, mode=0o550)
 		self.secfs[''][stor.SESNAME] = self.tokens
 		self.secfs[''][stor.PERSNAME] = self.perstokens
 		self.timestarted = None
@@ -423,14 +423,14 @@ class RegdServer:
 					resp += "Homepage: {0}\n\n".format( defs.__homepage__ )
 					resp += "Server version: {0}\n".format( defs.rversion )
 					resp += "Server datafile: {0}\n".format( self.datafile )
-					resp += "Server access: {0}\n".format( self.acc )
+					resp += "Server access: {0}\n".format( oct( self.acc) )
 					resp += "Server socket file: {0}\n".format( self.sockfile )
 
 					composeResponse( bresp, "1", resp )
 
 				elif cmd == IF_PATH_EXISTS:
 					try:
-						self.fs.getSItem( fpar )
+						self.fs.getItem( fpar )
 						composeResponse( bresp )
 					except IKException as e:
 						if e.code == ErrorCode.objectNotExists:
@@ -447,13 +447,13 @@ class RegdServer:
 					attrNames = None
 					if ATTRS in optmap:
 						attrNames = optmap[ATTRS]
-					m = self.fs.getSItemAttr( fpar, attrNames )
+					m = self.fs.getItemAttr( fpar, attrNames )
 					composeResponse( bresp, '1', m )
 
 				elif cmd == SETATTR:
 					'''Set attributes of a storage item.
 					Syntax: SETATTR <itempath> <attrname=attrval ...>'''
-					item = self.fs.setSItemAttr( fpar, optmap[ATTRS] )
+					item = self.fs.setItemAttr( fpar, optmap[ATTRS] )
 					item.markChanged()
 
 					# When the backing storage path attribute is set, the storage file
@@ -483,7 +483,7 @@ class RegdServer:
 						self.fs[""].listItems( lres = lres, bTree = swTree, nIndent = 0, bNovals = swNovals,
 										relPath = None, bRecur = swRecur )
 					else:
-						sect = self.fs.getSectionFromStr( fpar )
+						sect = self.fs.getItem( fpar )
 						sect.listItems( lres = lres, bTree = swTree, nIndent = 0, bNovals = swNovals,
 									relPath = None, bRecur = swRecur )
 
@@ -538,14 +538,19 @@ class RegdServer:
 									self.handleBinToken( dest, tok, optmap )
 									continue
 								if dest:
-									sec = self.fs.addTokenToDest( dest, tok, addMode, binaryVal, attrs = attrs )
+									sec = self.fs.addItem( tok=joinPath(dest, tok), 
+												addMode=addMode, binaryVal=binaryVal, 
+												attrs = attrs )
 								else:
-									sec = self.fs.addToken( tok, addMode, binaryVal, attrs = attrs )
+									sec = self.fs.addItem( tok=tok, addMode=addMode, 
+														binaryVal=binaryVal, attrs = attrs )
 							else: # ADD_TOKEN_SEC
 								if dest:
-									sec = self.sectokens.addTokenToDest( dest, tok, addMode, binaryVal, attrs = attrs )
+									sec = self.sectokens.addItem( tok=joinPath(dest, tok), 
+												addMode=addMode, binaryVal=binaryVal, attrs = attrs )
 								else:
-									sec = self.sectokens.addToken( tok, addMode, binaryVal, attrs = attrs )
+									sec = self.sectokens.addItem( tok=tok, addMode=addMode, 
+														binaryVal=binaryVal, attrs = attrs )
 
 							if sec: sec.markChanged()
 
@@ -585,14 +590,14 @@ class RegdServer:
 								with open( src ) as f:
 									val = f.read()
 							tok = dst[1:] + " =" + val
-							self.fs.addTokenToDest( dest, tok, addMode )
+							self.fs.addItem( util.joinPath(dest, tok), addMode )
 							ret = ""
 						elif src[0] == ':':  # cp from token to file
 							src = src[1:]
 							if not self.fs.isPathValid( src ):
 								src = "{0}/{1}".format( stor.PERSPATH if swPers else stor.SESPATH, fpar )
 
-							ret = self.fs.getTokenVal( src )
+							ret = self.fs.getItem( src ).val
 
 						composeResponse( bresp, '1', ret )
 
@@ -606,18 +611,18 @@ class RegdServer:
 					log.debug( "pers: {0} ; fpar: {1}".format( swPers, fpar ) )
 
 					if cmd == GET_ITEM:
-						composeResponse( bresp, '1', self.fs.getTokenVal( fpar ) )
+						composeResponse( bresp, '1', self.fs.getItem( fpar ) )
 						log.debug( "response: {0} ".format( bresp ) )
 					else:
 						if cmd == REMOVE_TOKEN:
-							sec = self.fs.removeToken( fpar )
+							sec = self.fs.removeItem( fpar )
 						elif cmd == CREATE_SECTION:
-							sec = self.fs.createSection( fpar )
+							sec = self.fs.addItem( fpar )
 							if ATTRS in optmap:
 								sec.setAttrs( optmap[ATTRS] )
 								sec.readFromFile( updateFromStorage = True )
 						elif cmd == REMOVE_SECTION:
-							sec = self.fs.removeSection( fpar )
+							sec = self.fs.removeItem( fpar )
 						elif cmd == RENAME:
 							sec = self.fs.rename( fpar, spar )
 
@@ -649,11 +654,11 @@ class RegdServer:
 						composeResponse( bresp, '1', self.sectokens.getTokenVal( fpar ) )
 
 				elif cmd == REMOVE_TOKEN_SEC:
-					self.sectokens.removeToken( fpar )
+					self.sectokens.removeItem( fpar )
 					composeResponse( bresp )
 
 				elif cmd == REMOVE_SECTION_SEC:
-					remove_section( self.sectokens, fpar )
+					self.sectokens.removeItem( fpar )
 					composeResponse( bresp )
 
 				elif cmd == CLEAR_SEC:
@@ -715,7 +720,7 @@ class RegdServer:
 			if not l:
 				continue
 			commonPath = os.path.commonpath( l )
-			sec = self.fs.getSectionFromStr( commonPath )
+			sec = self.fs.getItem( commonPath )
 			fhd = {}
 			sec.serialize( fhd, read = False )
 			for fpath, fh in fhd.items():
@@ -728,8 +733,8 @@ class RegdServer:
 		if dest:
 			tok = os.path.join( dest, tok )
 		path, nam, val = modtok.parse_token( tok, bNam=True, bVal=True)
-		sec = self.fs.getSection( path )
-		exefile = sec.getSVal( nam )
+		sec = self.fs.getItem( path )
+		exefile = sec.getItem( nam )
 		log.debug( "Calling: " + exefile.val + " " + val )
 		if tok.startswith(stor.BINPATH + "/sh/"):
 			subprocess.call( exefile.val + " " + val, shell=True )

@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-08-08 04:42:07"
+__lastedited__ = "2015-12-14 07:48:37"
 
 import sys, argparse, logging
 from collections import defaultdict
@@ -104,7 +104,7 @@ class RegdFS( LoggingMixIn, Operations ):
 	def read( self, path, size, offset, fh ):
 		print( "read: path: {0}; size: {1}; offset: {2}; fh: {3}".format( path, size, offset, fh ) )
 
-		res, ret = self.rcom.sendCmd( { "cmd": defs.GET_TOKEN, "params": [path] } )
+		res, ret = self.rcom.sendCmd( { "cmd": defs.GET_ITEM, "params": [path] } )
 		if res:
 			if type( ret ) is str:
 				ret = ret.encode( 'utf-8' )

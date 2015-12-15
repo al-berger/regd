@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-12 22:11:49"
+__lastedited__ = "2015-12-13 15:50:06"
 
 import regd.app as app
 from regd.app import APPNAME
@@ -30,9 +30,9 @@ app.APPNAME 		 = "regd"
 READ_ENCFILE_CMD 	 = "gpg --textmode -d FILENAME"
 
 # Privacy levels
-PL_PRIVATE			 = 1
-PL_PUBLIC_READ		 = 2
-PL_PUBLIC			 = 3
+PL_PRIVATE			 = 0o770
+PL_PUBLIC_READ		 = 0o775
+PL_PUBLIC			 = 0o777
 
 # Commands
 START_SERVER		 = "start"
@@ -112,6 +112,11 @@ nonlocal_cmds = ( SHOW_LOG, VERS )
 cmd_opts = ( DEST, SESSION, PERS, ALL, TREE, NOVALUES, FORCE, SERVER_SIDE, FROM_PARS, ATTRS,
 			BINARY, RECURS, SUM )
 rep_opts = ( ACCESS, STAT, DATAFILE )
+
+# Parse token mode
+no			= 0
+yes			= 1
+auto		= 2
 
 # Add token modes
 overwrite 	= 0
