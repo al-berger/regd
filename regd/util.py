@@ -8,11 +8,12 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2015-12-15 13:13:45"
+__lastedited__ = "2015-12-23 01:18:31"
 
-import os, pwd, logging, re
+import os, pwd, logging, re, json, io
 import regd.defs as defs
 import regd.app as app
+import regd.dtl as dtl
 from regd.app import IKException, ErrorCode
 
 # Loggers
@@ -129,7 +130,6 @@ def recvPack( sock, pack ):
 		except OSError as e:
 			raise IKException( ErrorCode.clientConnectionError, moreInfo = e.strerror )
 
-
 		data.extend( newdata )
 		datalen = len( data )
 		if not packlen and datalen >= 10:
@@ -151,7 +151,22 @@ def sendPack( sock, pack ):
 	cmdpack.extend( pack )
 	sock.sendall( cmdpack )
 
-def createPacket( cpars : 'in map', bpack : 'out bytearray' ):
+def createPacket( cpars : "in map" ):
+	'''Create a command packet for sending to a regd server.'''
+	if not cpars.get( "cmd", None ):
+		raise IKException( ErrorCode.unknownDataFormat, "Command parameters must have 'cmd' field." )
+	
+	fh = io.StringIO()
+	js = dtl.Jsonator()
+	json.dump( cpars, fh, default = js.tojson )
+	return fh.getvalue().encode()
+	
+def parsePacket( data : 'in bytes' ):
+	fh = io.StringIO( data.decode() )
+	js = dtl.Jsonator( ["regd.stor"] )
+	return json.load( fh, object_hook = js.fromjson )
+
+def createPacket_old( cpars : 'in map', bpack : 'out bytearray' ):
 	'''Create a command packet for sending to a regd server.'''
 	# Format: <packlen> <cmd|opt> <numparams> [<paramlen> <param>]...
 
@@ -214,7 +229,7 @@ def createPacketFromLists( cmd : 'in list', opt : 'in list', bpack : 'out bytear
 				else:
 					bpack.extend( b'0' )
 
-def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list' ) -> str:
+def parsePacket_old( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list' ) -> str:
 	# Server commands and regd command line commands and options are two different sets:
 	# the latter is the CL user interface, and the former is the internal communication
 	# protocol.
@@ -271,7 +286,16 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 
 class SVal:...
 
-def composeResponse( bpack : 'out bytearray', code = '1', *args ):
+def composeResponse( code = '1', *args ):
+	resp = [code]
+	resp.extend( args )
+
+	fh = io.StringIO()
+	js = dtl.Jsonator()
+	json.dump( resp, fh, default = js.tojson )
+	return fh.getvalue().encode()
+
+def composeResponse_old( bpack : 'out bytearray', code = '1', *args ):
 	'''Response message has hierachical recursive format and can have any number of nested
 	levels. Message logically consists of opaque data chunks (ODC) composed into objects with a
 	simple structure: each object contains the number of items it composed of, the items

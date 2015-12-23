@@ -10,77 +10,45 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-13 18:31:55"
+__lastedited__ = "2015-12-23 00:19:53"
 
-import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, threading, io
+import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
+from threading import Thread
 import ipaddress, shutil
-import regd.util as util, regd.defs as defs
-from regd.util import log, composeResponse, joinPath
-from regd.app import IKException, ErrorCode, sigHandler
-from regd.stor import read_sec_file, getstor
+import regd.defs as defs
+import regd.util as util
+from regd.util import log, composeResponse
+from regd.app import IKException, ErrorCode, ROAttr
 import regd.stor as stor
 import regd.app as app
 import regd.tok as modtok
-from regd.defs import *  # @UnusedWildImport
+from regd.cmds import CmdSwitcher, CmdProcessor
 
-lock_seriz = threading.Lock()
+srv = None
 
-class RegdServer:
-	def __init__( self, servername, sockfile, host, port, acc, datafile, binsecfile=None ):
+
+class RegdServer( CmdProcessor ):
+	'''Regd server.'''
+
+	cmdDefs = ( ( defs.STOP_SERVER, "0", None, {defs.NO_VERBOSE}, "chStopServer" ), )
+	
+	# Read-only fields
+	servername 	= ROAttr( "servername", str() )
+	sockfile 	= ROAttr( "sockfile", str() )
+	host 		= ROAttr( "host", str() )
+	port 		= ROAttr( "port", str() )
+	acc 		= ROAttr( "acc", int() )
+
+	def __init__( self, servername, sockfile, host, port, acc ):
+		super( RegdServer, self).__init__()
 		self.servername = servername
 		self.sockfile = sockfile
 		self.host = host
 		self.port = port
 		self.acc = acc
-		self.datafile = datafile
-		self.binsecfile = binsecfile
 		self.sock = None
+		self.info = {}
 		self.disposed = False
-
-		self.stat = {}
-		self.stat["general"] = {}
-		self.stat["tokens"] = {}
-		self.stat["commands"] = {}
-		self.mcmd = self.stat["commands"]
-		
-		self.fs 		= getstor( rootStor=None, mode=0o555 )
-		
-		self.tokens 	= getstor( rootStor=None, mode=0o777 )
-		self.perstokens = getstor( rootStor=None, mode=0o777 )
-		self.bintokens 	= getstor( rootStor = None, mode=0o777)
-		
-		self.fs[''] = getstor(rootStor=None, mode=0o555)
-		self.fs[''][stor.SESNAME] = self.tokens
-		# Persistent tokens
-		self.fs[''][stor.PERSNAME] = self.perstokens
-		if datafile:
-			self.fs.setItemAttr( stor.PERSPATH, ( "{0}={1}".format( 
-					stor.SItem.persPathAttrName, datafile ), ) )
-		# Bin section tokens
-		self.fs[''][stor.BINNAME] = self.bintokens
-		if binsecfile:
-			self.fs.setItemAttr( stor.BINPATH, ( "{0}={1}".format( 
-					stor.SItem.persPathAttrName, binsecfile ), ) )
-			
-		self.tokens.rootStor 		= self.tokens
-		self.perstokens.rootStor 	= self.perstokens
-		self.bintokens.rootStor 	= self.bintokens
-		
-		self.sectokens = getstor(rootStor=None)
-		self.secfs = getstor(rootStor=None)	
-			
-		self.secfs[''] = getstor(rootStor=None, mode=0o550)
-		self.secfs[''][stor.SESNAME] = self.tokens
-		self.secfs[''][stor.PERSNAME] = self.perstokens
-		self.timestarted = None
-		self.useruid = None
-
-		# Default encrypted file name
-		self.encFile = app.homedir + "/.sec/safestor.gpg"
-		# Flag showing whether the default enc. file has been read
-		self.defencread = False
-		# Command line command for reading encrypted file
-		self.secTokCmd = defs.READ_ENCFILE_CMD
 
 		# Trusted
 		self.trustedUserids = []
@@ -88,10 +56,6 @@ class RegdServer:
 
 		d = {}
 		app.read_conf( d )
-		if "encfile" in d:
-			self.encFile = d["encfile"]
-		if "encfile_read_cmd" in d:
-			self.secTokCmd = d["encfile_read_cmd"]
 		if host and "trusted_ips" in d:
 			ips = d["trusted_ips"]
 			if ips:
@@ -113,47 +77,9 @@ class RegdServer:
 					except:
 						continue
 					self.trustedUserids.append( uid )
+					
+		RegdServer.registerGroupHandlers( self.processCmd )
 
-		if self.datafile:
-			try:
-				fhd = {'cur':None}
-				stor.treeLoad = True
-				self.fs[''][stor.PERSNAME].serialize( fhd, read = True )
-				stor.treeLoad = False
-				for v in fhd.values():
-					if v: v.close()
-				# read_locked( self.data_fd, self.perstokens, defs.overwrite )
-				# self.data_fd.close()
-			except IKException as e:
-				log.error( "Cannot read the data file: %s" % ( str( e ) ) )
-				raise IKException( ErrorCode.operationFailed )
-		else:
-			print( "Server's data file is not specified. Persistent tokens are not enabled.")
-			
-		if self.binsecfile:
-			try:
-				fhd = {'cur':None}
-				stor.treeLoad = True
-				self.fs[''][stor.BINNAME].serialize( fhd, read = True )
-				stor.treeLoad = False
-				for v in fhd.values():
-					if v: v.close()
-			except IKException as e:
-				log.error( "Cannot read the bin_section file: %s" % ( str( e ) ) )
-				raise IKException( ErrorCode.operationFailed )
-
-		def signal_handler( signal, frame ):
-			self.sock.close()
-			self.close()
-			if self.sockfile:
-				os.unlink( self.sockfile )
-			sys.exit( 1 )
-
-		sigHandler.push( signal.SIGINT, signal_handler )
-		sigHandler.push( signal.SIGTERM, signal_handler )
-		sigHandler.push( signal.SIGHUP, signal_handler )
-		sigHandler.push( signal.SIGABRT, signal_handler )
-		sigHandler.push( signal.SIGALRM, signal_handler )
 
 	def __del__( self ):
 		# close() is better to be called earlier in order for closing routines not be
@@ -161,16 +87,17 @@ class RegdServer:
 		self.close()
 
 	def close( self ):
+		'''Dispose.'''
 		if self.disposed:
 			return
 		self.disposed = True
 		self.serialize()
-		if os.path.exists( self.sockfile ):
+		if os.path.exists( str( self.sockfile ) ):
 			log.info( "Signal is received. Unlinking socket file..." )
 			os.unlink( self.sockfile )
 
 	def start_loop( self ):
-
+		'''Start loop.'''	
 		if not self.host and os.path.exists( self.sockfile ):
 			log.info( "Socket file for a server with name already exists. Checking for the server process." )
 			'''Socket file may remain after an unclean exit. Check if another server is running.'''
@@ -198,7 +125,8 @@ class RegdServer:
 					res = ""
 
 			if len( res ):
-				if res.count( "\n" ) > 1:
+				# TODO
+				if res.count( "\n" ) > 2:
 					'''Server is already running.'''
 					log.warning( "Server is already running:\n{0}".format( res ) )
 					return 1
@@ -216,8 +144,7 @@ class RegdServer:
 		else:
 			log.info( "Starting regd server. useruid: {0} ; sockfile: {1} ; servername: {2}.".format( 
 												self.useruid, self.sockfile, self.servername ) )
-		self.stat["general"]["time_started"] = str( datetime.datetime.now() ).rpartition( "." )[0]
-		self.timestarted = datetime.datetime.now()
+		self.info["time_started"] = str( datetime.datetime.now() ).rpartition( "." )[0]
 		try:
 			if self.host:
 				self.sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
@@ -237,7 +164,7 @@ class RegdServer:
 
 		self.sock.settimeout( 30 )
 		self.sock.listen( 1 )
-		self.loop( self.sock )
+		Thread( target=self.loop, name="RegdServerLoop", args=( self.sock, ) ).start()
 
 	def loop( self, sock ):
 		self.cont = True
@@ -254,11 +181,6 @@ class RegdServer:
 					self.exitcode = 1
 					connection = None
 				else:
-					if self.datafile:
-						# TODO: in thread
-						if lock_seriz.acquire( blocking = False ):
-							self.serialize()
-							lock_seriz.release()
 					continue
 
 			except Exception as e:
@@ -271,9 +193,11 @@ class RegdServer:
 				if connection:
 					connection.shutdown( socket.SHUT_RDWR )
 					connection.close()
+				if self.sockfile:
+					os.unlink( self.sockfile )
 				sys.exit( self.exitcode )
 
-			threading.Thread( target = self.handle_connection, name = "handle_connection",
+			Thread( target = self.handle_connection, name = "handle_connection",
 								args = ( connection, client_address ) ).start()
 
 	def handle_connection( self, *args ):
@@ -311,401 +235,77 @@ class RegdServer:
 		log.debug( "data: %s" % ( data[:1000] ) )
 		data = data[10:]  # .decode( 'utf-8' )
 
-		cmdOptions = []
-		cmdData = []
 		bresp = bytearray()
 		cmd = None
-		try:
-			cmd = util.parsePacket( data, cmdOptions, cmdData )
-			log.debug( "command received: {0} {1}".format( cmd, cmdData ) )
-			log.debug( "command options: {0}".format( cmdOptions ) )
-		except Exception as e:
-			composeResponse( bresp, "0", str( e ) )
-
-
-		# Three response classes:
-		# 0 - program error
-		# 1 - success
-		# >1 - operation unsuccessful (e.g. key doesn't exist)
-		resp = "0"
 		perm = False
-
-		if self.host:
-			# IP-based server
-			if not self.trustedIps:
-				perm = True
-			else :
-				try:
-					clientIp = ipaddress.IPv4Address( client_address[0] )
-				except ValueError:
-					log.error( "Client IP address format is not recognized." )
-				else:
-					for i in self.trustedIps:
-						if clientIp in i:
-							perm = True
-							log.debug( "Client IP is trusted." )
-							break
-					if not perm:
-						log.error( "Client IP is NOT trusted : '%s : %s" %
-								( client_address[0], client_address[1] ) )
+		
+		try:
+			dcmd = util.parsePacket( data )
+			cmd = dcmd["cmd"]
+			log.debug( "command received: {0}".format( cmd ) )
+		except Exception as e:
+			bresp = composeResponse( "0", "Exception while parsing the command: " + str( e ) )
 		else:
-			# File socket server
-			if self.useruid == uid:
-				perm = True
-			elif uid in self.trustedUserids:
-				perm = True
-			elif cmd not in secure_cmds:
-				if self.acc == PL_PUBLIC:
+			# Check permission and persistency
+			
+			if self.host:
+				# IP-based server
+				if not self.trustedIps:
 					perm = True
-				elif self.acc == PL_PUBLIC_READ:
-					if cmd in pubread_cmds:
-						perm = True
-		log.debug( "perm: {0}".format( perm ) )
-		if not perm:
-			composeResponse( bresp, "0", str( IKException( ErrorCode.permissionDenied, cmd ) ) )
-		elif not self.datafile and util.getSwitches( cmdOptions, PERS )[0]:
-			composeResponse( bresp, "0", str( IKException( ErrorCode.persistentNotEnabled ) ) )
-		elif not len( bresp ):
-			self.mcmd[cmd] = 1 if cmd not in self.mcmd else self.mcmd[cmd] + 1
-
-			# -------------- Command handling -----------------
-			fpar = None
-			if len( cmdData ):
-				fpar = cmdData[0]
-			spar = None
-			if len( cmdData ) > 1:
-				spar = cmdData[1]
-
-			swPers, swTree, swForce, swFromPars, swRecur = util.getSwitches( cmdOptions,
-												PERS, TREE, FORCE, FROM_PARS, RECURS )
-			optDest, optBinary = util.getOptions( cmdOptions, DEST, BINARY )
-
-			optmap = util.getOptionMap( cmdOptions )
-
-			log.debug( "fpar: {0} ; spar: {1}".format( fpar, spar ) )
-
-			retCode = '0'
-
-			try:
-
-				if cmd == STOP_SERVER:
-					composeResponse( bresp )
-
-				elif cmd == CHECK_SERVER:
-					resp = "Up and running since {0}\nUptime:{1}.".format( 
-							str( self.timestarted ).rpartition( "." )[0],
-							str( datetime.datetime.now() - self.timestarted ).rpartition( "." )[0] )
-					composeResponse( bresp, '1', resp )
-
-				elif cmd == VERS:
-					composeResponse( bresp, '1', "Regd version on server: " + defs.__version__ )
-
-				elif cmd == REPORT:
-					if not fpar:
-						resp = "Unrecognized command syntax: the command parameter is missing."
-					else:
-						retCode = '1'
-						if fpar == defs.ACCESS:
-							resp = "{0}".format( self.acc )
-						elif fpar == defs.STAT:
-							resp = self.prepareStat()
-						elif fpar == defs.DATAFILE:
-							resp = self.datafile
-						else:
-							retCode = '0'
-							resp = "Unrecognized command syntax."
-
-					composeResponse( bresp, retCode, resp )
-
-				elif cmd == INFO:
-					resp = "{0} : {1}\n".format( app.APPNAME, defs.__description__ )
-					resp += "License: {0}\n".format( defs.__license__ )
-					resp += "Homepage: {0}\n\n".format( defs.__homepage__ )
-					resp += "Server version: {0}\n".format( defs.rversion )
-					resp += "Server datafile: {0}\n".format( self.datafile )
-					resp += "Server access: {0}\n".format( oct( self.acc) )
-					resp += "Server socket file: {0}\n".format( self.sockfile )
-
-					composeResponse( bresp, "1", resp )
-
-				elif cmd == IF_PATH_EXISTS:
+				else :
 					try:
-						self.fs.getItem( fpar )
-						composeResponse( bresp )
-					except IKException as e:
-						if e.code == ErrorCode.objectNotExists:
-							composeResponse( bresp, "0" )
-						else:
-							raise
-
-				elif cmd == GETATTR:
-					'''Query for attributes of a storage item.
-					Syntax: GETATTR <itempath> [attrname]
-					Without 'attrname' returns 'st_stat' attributes like function 'getattr'.
-					With 'attrname' works like 'getxattr'.
-					'''
-					attrNames = None
-					if ATTRS in optmap:
-						attrNames = optmap[ATTRS]
-					m = self.fs.getItemAttr( fpar, attrNames )
-					composeResponse( bresp, '1', m )
-
-				elif cmd == SETATTR:
-					'''Set attributes of a storage item.
-					Syntax: SETATTR <itempath> <attrname=attrval ...>'''
-					item = self.fs.setItemAttr( fpar, optmap[ATTRS] )
-					item.markChanged()
-
-					# When the backing storage path attribute is set, the storage file
-					# is overwritten with the current content of the item. In order to
-					# read the file contents into an item, loadFile function is used.
-					if [x for x in optmap[ATTRS] if x.startswith( stor.SItem.persPathAttrName + "=" )]:
-						# item.writeToFile()
-						with lock_seriz:
-							self.serialize()
-
-					composeResponse( bresp )
-
-				elif cmd == SHOW_LOG:
-					n = 20
-					if spar:
-						try:
-							n = int( spar )
-						except ValueError as e:
-							raise IKException( ErrorCode.unrecognizedParameter, spar,
-								moreInfo = "Number of lines only must contain digits." )
-					composeResponse( bresp, '1', util.getLog( n ) )
-
-				elif cmd == LIST:
-					swNovals = NOVALUES in optmap
-					lres = []
-					if not cmdData:
-						self.fs[""].listItems( lres = lres, bTree = swTree, nIndent = 0, bNovals = swNovals,
-										relPath = None, bRecur = swRecur )
+						clientIp = ipaddress.IPv4Address( client_address[0] )
+					except ValueError:
+						log.error( "Client IP address format is not recognized." )
 					else:
-						sect = self.fs.getItem( fpar )
-						sect.listItems( lres = lres, bTree = swTree, nIndent = 0, bNovals = swNovals,
-									relPath = None, bRecur = swRecur )
-
-					# composeResponse( bresp, '1', "\n".join(lres) )
-					composeResponse( bresp, '1', lres )
-
-				elif cmd in ( ADD_TOKEN, ADD_TOKEN_SEC, LOAD_FILE, COPY_FILE ):
-					dest = None
-					addMode = defs.noOverwrite
-					if not fpar:
-						raise IKException( ErrorCode.unrecognizedSyntax, moreInfo = "No items specified." )
-					if DEST in optmap:
-						if not len( optmap[DEST] ) or not self.fs.isPathValid( optmap[DEST][0] ):
-							raise IKException( ErrorCode.unrecognizedParameter,
-									moreInfo = "Parameter '{0}' must contain a valid section name.".format( DEST ) )
-						dest = optmap[DEST][0]
-					if PERS in optmap:
-						if dest:
-							raise IKException( ErrorCode.unrecognizedSyntax,
-									moreInfo = "{0} and {1} cannot be both specified for one command.".format( 
-																					DEST, PERS ) )
-						dest = stor.PERSPATH
-					if FORCE in optmap:
-						addMode = defs.overwrite
-					if SUM in optmap:
-						addMode = defs.sumUp
-					if ATTRS in optmap:
-						attrs = util.pairsListToMap( optmap[ATTRS] )
-					else:
-						attrs = None
-
-					if cmd in ( ADD_TOKEN, ADD_TOKEN_SEC ):
-						log.debug( "dest: {0} .".format( dest ) )
-						cnt = 0
-						for tok in cmdData:
-							# Without --dest or --pers options tokens with relative path
-							# are always added to /ses
-							if not dest and tok[0] != '/' and cmd != ADD_TOKEN_SEC:
-								dest = stor.SESPATH
-
-							binaryVal = None
-							if defs.BINARY in optmap:
-								if not optmap[defs.BINARY] or len( optmap[defs.BINARY] ) < cnt + 1:
-									raise IKException( ErrorCode.unknownDataFormat, tok )
-								binaryVal = optmap[defs.BINARY][cnt]
-								attrs[stor.SItem.Attrs.encoding.name] = defs.BINARY  # @UndefinedVariable
-								cnt += 1
-							sec = None
-							if cmd == ADD_TOKEN:
-								if (dest and dest.startswith( stor.BINPATH ) ) or \
-										tok.startswith( stor.BINPATH ):
-									self.handleBinToken( dest, tok, optmap )
-									continue
-								if dest:
-									sec = self.fs.addItem( tok=joinPath(dest, tok), 
-												addMode=addMode, binaryVal=binaryVal, 
-												attrs = attrs )
-								else:
-									sec = self.fs.addItem( tok=tok, addMode=addMode, 
-														binaryVal=binaryVal, attrs = attrs )
-							else: # ADD_TOKEN_SEC
-								if dest:
-									sec = self.sectokens.addItem( tok=joinPath(dest, tok), 
-												addMode=addMode, binaryVal=binaryVal, attrs = attrs )
-								else:
-									sec = self.sectokens.addItem( tok=tok, addMode=addMode, 
-														binaryVal=binaryVal, attrs = attrs )
-
-							if sec: sec.markChanged()
-
-						composeResponse( bresp )
-
-					elif cmd == LOAD_FILE:
-						'''Load tokens from a file.'''
-						if not dest:
-							dest = stor.SESPATH
-							
-						log.debug( "from_pars: {0}; dest: {1} .".format( swFromPars, dest ) )
-
-						if not swFromPars:
-							for filename in cmdData:
-								if os.path.exists( filename ):
-									#stor.read_tokens_from_file( filename, self.fs, addMode )
-									self.fs.readFromFile( filePath=filename, dest = dest)
-								else:
-									raise IKException( ErrorCode.objectNotExists, filename, "File not found" )
-						else:
-							#stok = self.fs.getSectionFromStr( dest )
-							for file in cmdData:
-								#stor.read_tokens_from_lines( file.split( '\n' ), stok, addMode )
-								fh = io.BytesIO( file.encode() )
-								self.fs.readFromFile( fh=fh, dest=dest )
-
-						composeResponse( bresp )
-
-					elif cmd == COPY_FILE:
-						src = cmdData[0]
-						dst = cmdData[1]
-						ret = None
-						if dst[0] == ':':  # cp from file to token
-							if swFromPars:
-								val = src
-							else:
-								with open( src ) as f:
-									val = f.read()
-							tok = dst[1:] + " =" + val
-							self.fs.addItem( util.joinPath(dest, tok), addMode )
-							ret = ""
-						elif src[0] == ':':  # cp from token to file
-							src = src[1:]
-							if not self.fs.isPathValid( src ):
-								src = "{0}/{1}".format( stor.PERSPATH if swPers else stor.SESPATH, fpar )
-
-							ret = self.fs.getItem( src ).val
-
-						composeResponse( bresp, '1', ret )
-
-
-				elif cmd in ( GET_ITEM, REMOVE_TOKEN, CREATE_SECTION, REMOVE_SECTION, RENAME ):
-					if fpar[0] != '/' or not self.fs.isPathValid( fpar ):
-						fpar = "{0}/{1}".format( stor.PERSPATH if swPers else stor.SESPATH, fpar )
-					elif stor.isPathPers( fpar ):
-						swPers = True
-
-					log.debug( "pers: {0} ; fpar: {1}".format( swPers, fpar ) )
-
-					if cmd == GET_ITEM:
-						composeResponse( bresp, '1', self.fs.getItem( fpar ) )
-						log.debug( "response: {0} ".format( bresp ) )
-					else:
-						if cmd == REMOVE_TOKEN:
-							sec = self.fs.removeItem( fpar )
-						elif cmd == CREATE_SECTION:
-							sec = self.fs.addItem( fpar )
-							if ATTRS in optmap:
-								sec.setAttrs( optmap[ATTRS] )
-								sec.readFromFile( updateFromStorage = True )
-						elif cmd == REMOVE_SECTION:
-							sec = self.fs.removeItem( fpar )
-						elif cmd == RENAME:
-							sec = self.fs.rename( fpar, spar )
-
-						if sec:
-							sec.markChanged()
-
-						composeResponse( bresp )
-
-				elif cmd == LOAD_FILE_SEC:
-					if not fpar:
-						file = self.encFile
-					else:
-						file = fpar
-
-					read_sec_file( file, self.secTokCmd, self.sectokens )
-					composeResponse( bresp )
-
-				elif cmd == GET_TOKEN_SEC:
-					''' Get secure token. '''
-					if not fpar:
-						composeResponse( bresp, '0', "No token specified." )
-					else:
-						if not len( self.sectokens ):
-							'''Sec tokens are not read yet. Read the default priv. file.'''
-							if not self.defencread:
-								read_sec_file( self.encFile, self.secTokCmd, self.sectokens )
-								self.defencread = True
-						# resp = "1" + get_token( self.sectokens, fpar )
-						composeResponse( bresp, '1', self.sectokens.getTokenVal( fpar ) )
-
-				elif cmd == REMOVE_TOKEN_SEC:
-					self.sectokens.removeItem( fpar )
-					composeResponse( bresp )
-
-				elif cmd == REMOVE_SECTION_SEC:
-					self.sectokens.removeItem( fpar )
-					composeResponse( bresp )
-
-				elif cmd == CLEAR_SEC:
-					self.sectokens = getstor(self.sectokens.rootStor)
-					composeResponse( bresp )
-
-				elif cmd == CLEAR_SESSION:
-					self.sectokens = getstor(self.sectokens.rootStor)
-					self.tokens = getstor(self.tokens.rootStor)
-					composeResponse( bresp )
-
+						for i in self.trustedIps:
+							if clientIp in i:
+								perm = True
+								log.debug( "Client IP is trusted." )
+								break
+						if not perm:
+							log.error( "Client IP is NOT trusted : '%s : %s" %
+									( client_address[0], client_address[1] ) )
+			else:
+				# File socket server
+				if self.useruid == uid:
+					perm = True
+				elif uid in self.trustedUserids:
+					perm = True
+				elif cmd not in defs.secure_cmds:
+					if self.acc == defs.PL_PUBLIC:
+						perm = True
+					elif self.acc == defs.PL_PUBLIC_READ:
+						if cmd in defs.pubread_cmds:
+							perm = True
+			log.debug( "perm: {0}".format( perm ) )
+			if not perm:
+				bresp = composeResponse( "0", str( IKException( ErrorCode.permissionDenied, cmd ) ) )
+			#elif not self.datafile and defs.PERS in cmd:
+			#	bresp = composeResponse( "0", str( IKException( ErrorCode.operationFailed, None, "Persistent tokens are not enabled." ) ) )
+		
+		if not len( bresp ):
+			try:
+				bresp = CmdSwitcher.switchCmd( dcmd )
 			except IKException as e:
-				composeResponse( bresp, '0', str( e ) )
+				bresp = composeResponse( '0', str( e ) )
 			except Exception as e:
-				composeResponse( bresp, '0', e.args[0] )
-			except BaseException as e:
-				composeResponse( bresp, '0', str( e ) )
+				bresp = composeResponse( '0', e.args[0] )
 
 		try:
 			if not len( bresp ):
-				composeResponse( bresp, "0", "Command not recognized" )
+				bresp = composeResponse( "0", "Command not recognized" )
 			util.sendPack( connection, bresp )
 		except OSError as er:
 			log.error( "Socket error {0}: {1}\nClient address: {2}\n".format( 
 							er.errno, er.strerror, client_address ) )
 
-		if cmd == STOP_SERVER and perm:
-			log.info( "Stopping server." )
-			#if self.sockfile:
-			#	os.unlink( self.sockfile )
-			self.cont = False
-			signal.alarm( 1 )
+		if cmd == defs.STOP_SERVER and perm:
+			app.glSignal.acquire()
+			app.glSignal.notify()
+			app.glSignal.release()
 
 		return
-
-	def prepareStat( self ):
-		'''Gather statistics'''
-		ret = ""
-		m = stor.Stor.statReg( self.tokens )
-		ret += ( "\nSession tokens:\n------------------------\n" )
-		ret += util.printMap( m, 0 )
-		m = stor.Stor.statReg( self.perstokens )
-		ret += ( "\nPersistent tokens:\n------------------------\n" )
-		ret += util.printMap( m, 0 )
-		ret += ( "\nCommands:\n------------------------\n" )
-		ret += util.printMap( self.mcmd, 0 )
-		return ret
 
 	def serialize( self ):
 		'''Serializing persistent tokens.'''
@@ -741,11 +341,7 @@ class RegdServer:
 		else:
 			subprocess.call( [exefile.val, val], shell=False )
 
-
-def Server( servername, sockfile = None, host = None, port = None, acc = defs.PL_PRIVATE, 
-		datafile = None, binsecfile = None ):
-	srv = RegdServer( servername, sockfile, host, port, acc, datafile, binsecfile )
-	srv.start_loop()
-	srv.close()
-
+	def chStopServer( self, cmd ):
+		'''Stop regd server'''
+		return composeResponse( '1', "Exiting..." )
 

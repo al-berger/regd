@@ -13,7 +13,8 @@
 __lastedited__ = "2015-12-14 07:48:37"
 
 import os, subprocess as sp, time
-import regd.defs as defs, regd.util as util, regd.cli as cli
+import regd.defs as defs, regd.cli as cli
+import regd.util as util
 from regd.util import log
 from regd.app import IKException, clp
 

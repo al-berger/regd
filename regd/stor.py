@@ -10,13 +10,15 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-15 13:13:23"
+__lastedited__ = "2015-12-20 17:55:01"
 
-import sys, re, subprocess, tempfile, os, time, threading, shutil
+import sys, re, os, time, threading, shutil
 from enum import Enum
 from regd.util import log, logtok
 from regd.app import IKException, ErrorCode
-import regd.defs as defs, regd.util as util
+import regd.defs as defs
+import regd.util as util
+import regd.app as app
 from regd.defs import dirInclude
 from regd.tok import parse_token, stripOne
 from regd.util import logsr
@@ -115,7 +117,7 @@ class SItem:
 			self.st_mode = attrVal
 		else:
 			self.attrs[attrName] = attrVal
-			if attrName == SItem.Attrs.persPath.name:
+			if attrName == SItem.persPathAttrName:
 				self.setStorageRef( self )
 
 	def setAttrs( self, lattrs ):
@@ -215,12 +217,12 @@ class SItem:
 		return fpath
 
 	def readFromFile( self, fh = None, updateFromStorage = False, filePath = None, 
-					dest = None ):
+					dest = None, addMode = defs.overwrite ):
 		'''Read from one of the three: an open file objectl, a file named in filePath 
 		or update from the backing storage.'''
 		fhd = {}
 		if updateFromStorage:
-			if SItem.Attrs.persPath.name in self.attrs:
+			if SItem.persPathAttrName in self.attrs:
 				self.clear()
 				fpath = self.attrs[SItem.persPathAttrName]
 		elif filePath: 
@@ -229,7 +231,7 @@ class SItem:
 			fhd[fh.name] = fh
 			fhd['cur'] = fh
 		
-		self.serialize( fhd = fhd, read = True, addMode = defs.overwrite, fpath = fpath, 
+		self.serialize( fhd = fhd, read = True, addMode = addMode, fpath = fpath, 
 					relPath = dest )
 		for fh in fhd.values():
 			fh.close()
@@ -273,6 +275,9 @@ class SVal( SItem ):
 
 	def pathName( self ):
 		return self.stor.pathName() + "/" + self.name
+	
+	def stat(self):
+		return { "size" : self.getsize() }
 
 	def serialize( self, fhd, read = True, fpath = None ):
 		'''Serialization (writing) for storage values'''
@@ -1063,20 +1068,17 @@ class Stor( SItem, dict ):
 
 			self.changed = False
 
-
-
-	@staticmethod
-	def statReg( stok ):
+	def stat( self ):
 		m = OrderedDict()
-		m['num_of_sections'] = stok.numItems( EnumMode.sectionsAll )
-		m['num_of_tokens'] = stok.numItems( EnumMode.tokensAll )
+		m['num_of_sections'] = self.numItems( EnumMode.sectionsAll )
+		m['num_of_tokens'] = self.numItems( EnumMode.tokensAll )
 		m['max_key_length'] = 0
 		m['max_value_length'] = 0
 		m['avg_key_length'] = 0
 		m['avg_value_length'] = 0
 		m['total_size_bytes'] = 0
-		stok.enumerate( EnumMode.tokensAll )
-		for nam, val in stok:
+		self.enumerate( EnumMode.tokensAll )
+		for nam, val in self:
 			if len( nam ) > m['max_key_length']:
 				m['max_key_length'] = len( nam )
 			if len( val ) > m['max_value_length']:
@@ -1148,23 +1150,6 @@ def read_tokens_from_lines( lines, stok, addMode = defs.noOverwrite ):
 		curTok = stripOne( l, False, True, '\n' )
 	flush()
 
-def read_sec_file( filename, cmd, tok, addMode = defs.noOverwrite ):
-	if not os.path.exists( filename ):
-		log.error( "Cannot find encrypted data file. Exiting." )
-		raise IKException( ErrorCode.operationFailed, "File not found." )
-
-	try:
-		cmd = cmd.replace( "FILENAME", "{0}" )
-		ftxt = subprocess.check_output( cmd.format( filename ),
-							shell = True, stderr = subprocess.DEVNULL )
-	except subprocess.CalledProcessError as e:
-		log.error( ftxt )
-		raise IKException( ErrorCode.operationFailed, e.output )
-
-	ftxt = ftxt.decode( 'utf-8' )
-	ltxt = ftxt.split( "\n" )
-
-	read_tokens_from_lines( ltxt, tok, addMode )
 
 def read_tokens_from_file( filename, tok, addMode = defs.noOverwrite ):
 	'''Reads tokens from a text file. If the file contains several sections, their names
