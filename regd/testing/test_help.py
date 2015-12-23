@@ -19,7 +19,8 @@ import sys, os, argparse, logging, time, re, pwd
 import subprocess as sp
 from configparser import ConfigParser
 # import regd
-import regd.util as util, regd.defs as defs, regd.stor as stor
+import regd.defs as defs, regd.stor as stor
+import regd.util as util
 import regd.tok as tok
 import regd.app as app
 

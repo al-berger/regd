@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-Nov-02 05:22:56 AM"
+__lastedited__ = "2015-12-23 15:55:53"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -20,8 +20,8 @@ import regd.util as util
 from regd.app import clc, declc, clp
 from regd.app import IKException, ErrorCode
 import regd.defs as defs
-import regd.serv as serv
 import regd.app as app
+import regd.rgs as rgs
 
 THISFILE = os.path.basename( __file__ )
 
@@ -95,8 +95,7 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 
 	try:
 		data = bytearray()
-		bpack = bytearray()
-		util.createPacket( cpars, bpack )
+		bpack = util.createPacket( cpars )
 		util.logcomm.debug( "sending packet: {0}".format( bpack ) )
 
 		try:
@@ -114,7 +113,7 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 		if len( data ) < 11:
 			lres = ['0', 'Server returned empty response']
 		else:
-			util.parseResponse( data[10:], lres )
+			lres = util.parsePacket( data[10:] )
 			util.logcomm.debug( "parsed packet: {0}".format( lres ) )
 		return ( lres[0] == '1', lres[1] if len( lres ) == 2 else lres[1:] )
 	except OSError as er:
@@ -241,12 +240,12 @@ def main( *kwargs ):
 	parser.add_argument( clp( defs.LOG_LEVEL ), default = 'WARNING', help = 'DEBUG, INFO, WARNING, ERROR, CRITICAL' )
 	parser.add_argument( clp( defs.LOG_TOPICS ), help = 'For debugging purposes.' )
 	parser.add_argument( clp( defs.SERVER_NAME ), help = 'The name of the server instance.' )
-	parser.add_argument( '--host', help = 'Run the server on an Internet socket with the specified hostname.' )
-	parser.add_argument( '--port', help = 'Run the server on an Internet socket with the specified port.' )
-	parser.add_argument( '--access', help = 'Access level for the server: private, public_read or public.' )
-	parser.add_argument( '--datafile', help = 'File for reading and storing persistent tokens.' )
-	parser.add_argument( '--no-verbose', action = 'store_true', help = 'Only output return code numbers.' )
-	parser.add_argument( '--auto-start', action = 'store_true', help = 'If regd server is not running, start it before executing the command.' )
+	parser.add_argument( clp( defs.HOST ), help = 'Run the server on an Internet socket with the specified hostname.' )
+	parser.add_argument( clp( defs.PORT ), help = 'Run the server on an Internet socket with the specified port.' )
+	parser.add_argument( clp( defs.ACCESS ), help = 'Access level for the server: private, public_read or public.' )
+	parser.add_argument( clp( defs.DATAFILE ), help = 'File for reading and storing persistent tokens.' )
+	parser.add_argument( clp( defs.NO_VERBOSE ), action = 'store_true', help = 'Only output return code numbers.' )
+	parser.add_argument( clp( defs.AUTO_START ), action = 'store_true', help = 'If regd server is not running, start it before executing the command.' )
 
 	# Command options
 	parser.add_argument( clp( defs.DEST ), "-d", action = CmdParam, help = "The name of the section into which tokens must be added." )
@@ -455,7 +454,7 @@ def main( *kwargs ):
 
 		log.info( "Starting server %s : %s, access: %s " % (( servername, host )[bool( host )], 
 								( _sockfile, port )[bool( host )], oct(args.access) ) )
-		return serv.Server( servername, _sockfile, host, port, acc, datafile, binsect )
+		return rgs.startRegistry( servername, _sockfile, host, port, acc, datafile, binsect )
 
 	elif cmd == defs.STOP_SERVER:
 		res, _ = Client( { "cmd": defs.STOP_SERVER }, _sockfile, host, port )
@@ -483,7 +482,7 @@ def main( *kwargs ):
 
 		time.sleep( 3 )
 
-		return serv.Server( servername, _sockfile, host, port, int( retAcc ), retDf )
+		return rgs.startRegistrty( servername, _sockfile, host, port, int( retAcc ), retDf )
 
 	elif isServerCmd( cmdoptions ):
 		res, ret = doServerCmd( cmdoptions, _sockfile, host, port )

@@ -10,12 +10,12 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-13 15:50:06"
+__lastedited__ = "2015-12-20 17:46:25"
 
 import regd.app as app
 from regd.app import APPNAME
 
-VERSION = ( 0, 6, 1, 31 )
+VERSION = ( 0, 7, 0, 32 )
 __version__ = '.'.join( [str( x ) for x in VERSION[0:3]] )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -34,7 +34,9 @@ PL_PRIVATE			 = 0o770
 PL_PUBLIC_READ		 = 0o775
 PL_PUBLIC			 = 0o777
 
-# Commands
+		
+
+# Command names
 START_SERVER		 = "start"
 STOP_SERVER			 = "stop"
 RESTART_SERVER		 = "restart"
@@ -75,6 +77,12 @@ LOG_LEVEL			 = "log_level"
 LOG_TOPICS			 = "log_topics"
 
 # Command options
+PORT				 = "port"
+HOST				 = "host"
+ACCESS 				 = "access"
+DATAFILE			 = "datafile"
+NO_VERBOSE			 = "no_verbose"
+AUTO_START			 = "auto_start"
 DEST				 = "dest"
 SESSION				 = "session"
 PERS				 = "pers"
@@ -90,9 +98,10 @@ RECURS				 = "recursively"
 SUM					 = "sum"
 
 # Report ("what") options
-ACCESS 				 = "access"
 STAT				 = "stat"
-DATAFILE			 = "datafile"
+REP_SERVER			 = "server"
+REP_STORAGE			 = "storage"
+REP_COMMANDS		 = "commands"
 
 # Command groups
 all_cmds = ( ADD_TOKEN, ADD_TOKEN_SEC, CHECK_SERVER, CLEAR_SEC, CLEAR_SESSION, COPY_FILE,
