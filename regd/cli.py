@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-12-23 15:55:53"
+__lastedited__ = "2016-01-24 03:05:26"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -115,7 +115,14 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 		else:
 			lres = util.parsePacket( data[10:] )
 			util.logcomm.debug( "parsed packet: {0}".format( lres ) )
-		return ( lres[0] == '1', lres[1] if len( lres ) == 2 else lres[1:] )
+		if len( lres ) == 2:
+			if type( lres[1] ) is list and len( lres[1] ) == 1:
+				ret = lres[1][0]
+			else:
+				ret = lres[1]
+		else:
+			ret = lres[1:] 
+		return ( lres[0] == '1', ret )
 	except OSError as er:
 		return False, ["regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
 												er.errno, er.strerror, sockfile, host, port )]
@@ -242,7 +249,7 @@ def main( *kwargs ):
 	parser.add_argument( clp( defs.SERVER_NAME ), help = 'The name of the server instance.' )
 	parser.add_argument( clp( defs.HOST ), help = 'Run the server on an Internet socket with the specified hostname.' )
 	parser.add_argument( clp( defs.PORT ), help = 'Run the server on an Internet socket with the specified port.' )
-	parser.add_argument( clp( defs.ACCESS ), help = 'Access level for the server: private, public_read or public.' )
+	parser.add_argument( clp( defs.ACCESS ), help = 'Access level for the server: secure, private, public_read or public.' )
 	parser.add_argument( clp( defs.DATAFILE ), help = 'File for reading and storing persistent tokens.' )
 	parser.add_argument( clp( defs.NO_VERBOSE ), action = 'store_true', help = 'Only output return code numbers.' )
 	parser.add_argument( clp( defs.AUTO_START ), action = 'store_true', help = 'If regd server is not running, start it before executing the command.' )
@@ -347,6 +354,7 @@ def main( *kwargs ):
 	# Server commands
 
 	if args.auto_start:
+		raise Exception("No autostart")
 		if not checkConnection( _sockfile, host, port ):
 			opts = [__file__, defs.START_SERVER]
 			if host:
@@ -387,18 +395,22 @@ def main( *kwargs ):
 
 		# Permission level
 
-		acc = defs.PL_PRIVATE
 		if args.access:
-			if args.access == "private":
-				pass
+			if args.access.startswith("0o"):
+				acc = int( args.access, 8 )
+			elif args.access == "secure":
+				acc = defs.PL_SECURE
+			elif args.access == "private":
+				acc = defs.PL_PRIVATE
 			elif args.access == "public-read":
 				acc = defs.PL_PUBLIC_READ
 			elif args.access == "public":
 				acc = defs.PL_PUBLIC
 			else:
-				print( "Unknown access mode. Must be: 'private', 'public-read' or 'public'" )
+				print( "Unknown access mode. Must be: 'secure', 'private', 'public-read' or 'public'" )
 				return 1
 		else:
+			acc = defs.PL_PRIVATE
 			args.access = acc
 		log.debug( "Permission level: %s" % args.access )
 
@@ -424,6 +436,10 @@ def main( *kwargs ):
 		# Checking --datafile command line option
 		datafile = args.datafile
 		if datafile:
+			if acc == defs.PL_SECURE:
+				print( "Secure access and --datafile option cannot be both specified")
+				return 1
+
 			if datafile == "None":
 				datafile = None
 			else:
@@ -431,7 +447,7 @@ def main( *kwargs ):
 					print( "Error: data file doesn't exist: \"{0}\".".format( datafile ),
 						"Server is not started." )
 					return -1
-		elif DATADIR:
+		elif DATADIR and acc != defs.PL_SECURE:
 			# Composing the default data file name
 			if host:
 				datafile = host + "." + port + ".data"
@@ -453,7 +469,7 @@ def main( *kwargs ):
 				binsect = os.path.join( DATADIR, "bin_section" )
 
 		log.info( "Starting server %s : %s, access: %s " % (( servername, host )[bool( host )], 
-								( _sockfile, port )[bool( host )], oct(args.access) ) )
+								( _sockfile, port )[bool( host )], args.access ) )
 		return rgs.startRegistry( servername, _sockfile, host, port, acc, datafile, binsect )
 
 	elif cmd == defs.STOP_SERVER:
@@ -482,7 +498,7 @@ def main( *kwargs ):
 
 		time.sleep( 3 )
 
-		return rgs.startRegistrty( servername, _sockfile, host, port, int( retAcc ), retDf )
+		return rgs.startRegistry( servername, _sockfile, host, port, int( retAcc ), retDf )
 
 	elif isServerCmd( cmdoptions ):
 		res, ret = doServerCmd( cmdoptions, _sockfile, host, port )

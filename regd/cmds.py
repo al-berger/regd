@@ -11,11 +11,12 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2015-12-23 01:13:45"
+__lastedited__ = "2016-01-24 03:08:36"
 
 from regd.app import IKException, ErrorCode
 import regd.defs as df
 import regd.util as util
+from regd.util import log
 
 class Cmd():
 	'''Server command'''
@@ -35,7 +36,10 @@ class Cmd():
 
 		# Numbers of parameters
 		if self.npars != "*":
-			parlen = len( dcmd["params"] )
+			if "params" in dcmd:
+				parlen = len( dcmd["params"] )
+			else:
+				parlen = 0
 			wrong = False
 			if self.npars[-1] == "+":
 				n = int( self.npars[:-1] )
@@ -81,6 +85,7 @@ class CmdProcessor:
 	def __init__( self, conn=None ):
 		self.cmdMap = {}
 		self.conn = conn
+		self.cont = True
 		
 		for c in self.cmdDefs:
 			self.addHandler( c )
@@ -94,18 +99,26 @@ class CmdProcessor:
 	def processCmd(self, cmd):
 		'''Process command'''
 		if cmd["cmd"] not in self.cmdMap:
-			util.composeResponse( '0', "Unrecognized command: ", cmd["cmd"] )
+			return util.composeResponse( '0', "Unrecognized command: ", cmd["cmd"] )
 
 		CmdSwitcher.info["cmds"][cmd["cmd"]] = 1 + CmdSwitcher.info["cmds"].setdefault(cmd["cmd"], 0)
 		hnd = self.cmdMap[cmd["cmd"]]
 		return hnd( cmd )
 
 	def listenForMessages(self, func):
-		while True:
+		while self.cont:
 			if self.conn.poll(30):
-				cmd = self.conn.recv()
-				resp = self.processCmd( cmd )
-				self.conn.send( resp )
+				try:
+					cmd = self.conn.recv()
+					try:
+						resp = self.processCmd( cmd )
+					except IKException as e:
+						resp = util.composeResponse( "0", "In listenForMessages - exception received: {0}.\n Continue listening...".format( e ) )
+						log.error( resp  )
+					self.conn.send( resp )
+				except Exception as e:
+					log.error( "In listenForMessages - exception received: {0}.\n Quit listening...".format( e ) )
+					raise
 			else:
 				func()
 	
@@ -135,6 +148,17 @@ class CmdSwitcher:
 		CmdSwitcher.info["cmds"][cmd["cmd"]] = 1 + CmdSwitcher.info["cmds"].setdefault(cmd["cmd"], 0)
 		hnd = CmdSwitcher.cmdHandlers[cmd["cmd"]]
 		return hnd( cmd )
+
+	@staticmethod
+	def handleCmd( cmd ):
+		'''Switch command and intercept exceptions.'''
+		try:
+			bresp = CmdSwitcher.switchCmd( cmd )
+		except IKException as e:
+			bresp = util.composeResponse( '0', str( e ) )
+		except Exception as e:
+			bresp = util.composeResponse( '0', e.args[0] )
+		return bresp
 
 
 def registerGroupHandler( cmdNames : list, func ):

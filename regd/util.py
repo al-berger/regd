@@ -8,12 +8,13 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2015-12-23 01:18:31"
+__lastedited__ = "2016-01-01 22:40:14"
 
 import os, pwd, logging, re, json, io
 import regd.defs as defs
 import regd.app as app
 import regd.dtl as dtl
+#import pickle
 from regd.app import IKException, ErrorCode
 
 # Loggers
@@ -42,15 +43,18 @@ def setLog( loglevel, logtopics = None ):
 		strlog_ = logging.StreamHandler()
 		strlog_.setLevel( logging.DEBUG )
 		strlog_.setFormatter( bf )
-		if "tokens" in logtopics and not logtok.hasHandlers():
+		if "tokens" in logtopics:
 			logtok.setLevel( logging.DEBUG )
-			logtok.addHandler( strlog_ )
-		if "comm" in logtopics and not logcomm.hasHandlers():
+			if not logtok.hasHandlers():
+				logtok.addHandler( strlog_ )
+		if "comm" in logtopics:
 			logcomm.setLevel( logging.DEBUG )
-			logcomm.addHandler( strlog_ )
-		if "sr" in logtopics and not logsr.hasHandlers():
+			if not logcomm.hasHandlers():
+				logcomm.addHandler( strlog_ )
+		if "sr" in logtopics:
 			logsr.setLevel( logging.DEBUG )
-			logsr.addHandler( strlog_ )
+			if not logsr.hasHandlers():
+				logsr.addHandler( strlog_ )
 
 def parse_server_name( server_string ):
 	atuser = None
@@ -155,13 +159,14 @@ def createPacket( cpars : "in map" ):
 	'''Create a command packet for sending to a regd server.'''
 	if not cpars.get( "cmd", None ):
 		raise IKException( ErrorCode.unknownDataFormat, "Command parameters must have 'cmd' field." )
-	
+	#return pickle.dumps( cpars, -1)
 	fh = io.StringIO()
 	js = dtl.Jsonator()
 	json.dump( cpars, fh, default = js.tojson )
 	return fh.getvalue().encode()
 	
 def parsePacket( data : 'in bytes' ):
+	#return pickle.loads( data )
 	fh = io.StringIO( data.decode() )
 	js = dtl.Jsonator( ["regd.stor"] )
 	return json.load( fh, object_hook = js.fromjson )
@@ -287,9 +292,13 @@ def parsePacket_old( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out 
 class SVal:...
 
 def composeResponse( code = '1', *args ):
+	''' The format of response is a list with two values: result code and returned content.'''
 	resp = [code]
-	resp.extend( args )
-
+	#resp.extend( args )
+	if args and len( args ) == 1:
+		args = args[0]
+	resp.append( args )
+	#return pickle.dumps( resp, -1 )
 	fh = io.StringIO()
 	js = dtl.Jsonator()
 	json.dump( resp, fh, default = js.tojson )
