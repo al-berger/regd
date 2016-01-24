@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-24 03:00:04"
+__lastedited__ = "2016-01-24 06:39:37"
 
 import sys, re, os, time, threading, shutil
 from enum import Enum
@@ -951,7 +951,7 @@ class Stor( SItem, dict ):
 			if self.numItems( EnumMode.tokens ):
 				logsr.debug( "{0}Stor {1}: writing items".format( " "*indent, self.pathName() ) )
 				if secpath:
-					fh.write( "[{0}]\n".format( secpath ).encode() )
+					fh.write( "\n[{0}]\n\n".format( secpath ).encode() )
 
 				self.enumerate( EnumMode.tokens )
 				for nam, _ in self:
