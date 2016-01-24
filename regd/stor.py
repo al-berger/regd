@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-24 06:39:37"
+__lastedited__ = "2016-01-24 15:54:05"
 
 import sys, re, os, time, threading, shutil
 from enum import Enum
@@ -42,15 +42,6 @@ reTok = re.compile( TOKENPATT, re.DOTALL )
 reMlTok = re.compile( MULTILINETOKENPATT )
 reEmpty = re.compile( "^\r?\n?$" )
 
-PERSNAME = "sav"
-SESNAME = "ses"
-BINNAME = "bin"
-PERSPATH = "/" + PERSNAME
-SESPATH = "/" + SESNAME
-BINPATH = "/" + BINNAME
-
-rootdirs = (SESPATH, PERSPATH, BINPATH)
-serializable_roots = (PERSPATH, BINPATH)
 changed = []
 lock_changed = threading.Lock()
 treeLoad = False
@@ -573,32 +564,6 @@ class Stor( SItem, dict ):
 		# else:
 		# 	return self.name
 
-	def isPathValid( self, path ):
-		if not path:
-			return False
-
-		if path[0] != '/':
-			if self.name:
-				path = self.pathName() + "/" + path
-		else:
-			# Absolute paths can only be added at the root section
-			if self.name:
-				return False
-
-		b = False
-		if path[0] == '/':
-			for d in rootdirs:
-				if path.startswith( d ):
-					b = True
-					break
-			if not b:
-				return False
-
-		if path.find( '//' ) != -1:
-			return False
-
-		return True
-
 	def numItems( self, itemType = EnumMode.both ):
 		cnt = None
 		if itemType == EnumMode.both:
@@ -934,18 +899,12 @@ class Stor( SItem, dict ):
 						path = [''] + path
 					self.addItem( addMode = addMode, path = path, val = tok )
 		else:
-			if 0 and not self.changed:
-				logsr.debug( "Serializing: Stor {0} not changed".format( self.pathName() ) )
-				return
 			if SItem.persPathAttrName in self.attrs:
 				relPath = ""
 				secpath = ""
 			else:
-				if 1 or relPath:
-					secpath = ( relPath if relPath else "" ) + self.name
-					relPath = secpath
-				else:
-					secpath = self.pathName()[( len( PERSPATH ) + 1 ):]
+				secpath = ( relPath if relPath else "" ) + self.name
+				relPath = secpath
 
 			logsr.debug( "{0}Serializing: Stor {1}".format( " "*indent, self.pathName() ) )
 			if self.numItems( EnumMode.tokens ):
@@ -994,12 +953,6 @@ class Stor( SItem, dict ):
 
 def getstor( rootStor, name = '', mode = 0o755, gid = None, uid = None ):
 	return Stor( rootStor = rootStor, name = name, mode = mode, gid = gid, uid = uid )
-
-def isPathPers( path ):
-	if path.startswith( PERSPATH ):
-		return True
-	else:
-		return False
 
 baseSectType = Stor
 baseValType = SVal
