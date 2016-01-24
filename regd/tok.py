@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-13 11:55:58"
+__lastedited__ = "2016-01-24 05:22:19"
 
 import re
 from regd.util import logtok
@@ -63,7 +63,7 @@ def escapedpart( tok, sep, second = False ):
 	# Special case: separator as the first character
 	if tok[0] == sep:
 		tok = tok[1:]
-		return ( '', tok )
+		return ( '', sep, tok )
 
 	while True:
 		idx = tok.find( sep, start )
@@ -74,13 +74,13 @@ def escapedpart( tok, sep, second = False ):
 
 	if idx == -1:
 		tok = tok.replace( "\\" + sep, sep )
-		return ( None, tok ) if second else ( tok, None )
+		return ( None, None, tok ) if second else ( tok, None, None )
 
 	l, r = ( tok[0:idx], tok[( idx + 1 ):] )
 	l = l.replace( "\\" + sep, sep )
 	# r = r.replace("\\"+sep, sep)
 
-	return ( l, r )
+	return ( l, sep, r )
 
 def parse_token( tok, bVal = defs.auto ):
 	'''Parse token with the specified structure'''
@@ -93,8 +93,9 @@ def parse_token( tok, bVal = defs.auto ):
 			raise IKException( ErrorCode.unknownDataFormat, tok, "Unescaped equal sign in token path." )
 	
 	if bVal == defs.yes:
-		p, val = escapedpart( tok, "=" )
-		if not val:
+		p, sep, val = escapedpart( tok, "=" )
+		# Allow for empty tokens (with name and separator without value)
+		if not sep:
 			raise IKException( ErrorCode.unknownDataFormat, tok, "Cannot parse token" )
 		p = stripOne( p, False, True ) if p else None
 		val = stripOne( val, True, False ) if val else None
