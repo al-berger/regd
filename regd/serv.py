@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 ********************************************************************'''
-__lastedited__ = "2016-01-23 04:25:56"
+__lastedited__ = "2016-01-24 13:28:10"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
 import multiprocessing as mp
@@ -278,6 +278,7 @@ class RegdServer( CmdProcessor ):
 		
 		try:
 			dcmd = util.parsePacket( data )
+			# 'internal' switch is only used within regd server
 			if "internal" in dcmd:
 				raise Exception("Unrecognized syntax.")
 			cmd = dcmd["cmd"]

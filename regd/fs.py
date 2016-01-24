@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-01-24 13:01:19"
+__lastedited__ = "2016-01-24 15:57:19"
 
 import sys, os, subprocess, shutil, io
 from multiprocessing import Process, Pipe, Lock
@@ -31,6 +31,15 @@ import regd.tok as modtok
 FS_INFO = "FS_INFO"
 FS_STOP = "FS_STOP"
 
+PERSNAME = "sav"
+SESNAME = "ses"
+BINNAME = "bin"
+PERSPATH = "/" + PERSNAME
+SESPATH = "/" + SESNAME
+BINPATH = "/" + BINNAME
+
+rootdirs = (SESPATH, PERSPATH, BINPATH)
+serializable_roots = (PERSPATH, BINPATH)
 
 class FS( CmdProcessor ):
 	'''Regd server storage'''
@@ -74,12 +83,11 @@ class FS( CmdProcessor ):
 		self.bintokens 	= getstor( rootStor = None, mode=0o777)
 		
 		self.fs[''] = getstor(rootStor=None, mode=0o555)
-		self.fs[''][stor.SESNAME] = self.tokens
-		# Persistent tokens
+		self.fs[''][SESNAME] = self.tokens
 		# Bin section tokens
-		self.fs[''][stor.BINNAME] = self.bintokens
+		self.fs[''][BINNAME] = self.bintokens
 		if self.binsecfile:
-			self.fs.setItemAttr( stor.BINPATH, ( "{0}={1}".format( 
+			self.fs.setItemAttr( BINPATH, ( "{0}={1}".format( 
 					stor.SItem.persPathAttrName, self.binsecfile ), ) )
 			
 		self.tokens.rootStor 		= self.tokens
@@ -95,16 +103,17 @@ class FS( CmdProcessor ):
 		self.secTokCmd = df.READ_ENCFILE_CMD
 		
 		if self.datafile:
+			# Persistent tokens
 			self.perstokens = getstor( rootStor=None, mode=0o777 )
-			self.fs[''][stor.PERSNAME] = self.perstokens
-			self.fs.setItemAttr( stor.PERSPATH, ( "{0}={1}".format( 
+			self.fs[''][PERSNAME] = self.perstokens
+			self.fs.setItemAttr( PERSPATH, ( "{0}={1}".format( 
 						stor.SItem.persPathAttrName, self.datafile ), ) )
 			self.perstokens.rootStor 	= self.perstokens
 			
 			try:
 				fhd = {'cur':None}
 				stor.treeLoad = True
-				self.fs[''][stor.PERSNAME].serialize( fhd, read = True )
+				self.fs[''][PERSNAME].serialize( fhd, read = True )
 				stor.treeLoad = False
 				for v in fhd.values():
 					if v: v.close()
@@ -120,7 +129,7 @@ class FS( CmdProcessor ):
 			try:
 				fhd = {'cur':None}
 				stor.treeLoad = True
-				self.fs[''][stor.BINNAME].serialize( fhd, read = True )
+				self.fs[''][BINNAME].serialize( fhd, read = True )
 				stor.treeLoad = False
 				for v in fhd.values():
 					if v: v.close()
@@ -155,9 +164,44 @@ class FS( CmdProcessor ):
 
 		return self.fs.getItem( pathName ).value()
 
+	def _isPathValid( self, tok=None, path=None, cmd ):
+		'''Check the validity of an absolute path name.'''
+		if tok:
+			path = modtok.parse_token( tok, df.yes )[0]
+		
+		if not path:
+			return False
+
+		if path[0] != '/':
+			return False
+
+ 		if path[0] != '/':
+			if self.name:
+				path = self.pathName() + "/" + path
+		else:
+			# Absolute paths can only be added at the root section
+			if self.name:
+ 				return False
+
+		b = False
+		for d in rootdirs:
+			if path.startswith( d ):
+				b = True
+				break
+		if not b:
+			return False
+
+		if path[1] == "_" and "internal" not in cmd:
+			return False
+
+		if path.find( '//' ) != -1:
+			return False
+
+		return True
+
 	def clearSessionTokens( self ):
 		'''Remove secure token'''
-		self.fs[''][stor.SESNAME].clear()
+		self.fs[''][SESNAME].clear()
 
 	def read_sec_file( self, filename=None, cmd=None, addMode = df.noOverwrite ):
 		'''Read secure tokens from a file with a user command'''
@@ -190,7 +234,7 @@ class FS( CmdProcessor ):
 			ch_ = stor.changed[:]
 			stor.changed = []
 		# Finding a common path separately for each serializable root
-		for r in stor.serializable_roots:
+		for r in serializable_roots:
 			l = [x.pathName() for x in ch_ if x.pathName().startswith( r )]
 			if not l:
 				continue
@@ -211,7 +255,7 @@ class FS( CmdProcessor ):
 		sec = self.fs.getItem( path )
 		exefile = sec.getItem( nam )
 		log.debug( "Calling: " + exefile.val + " " + val )
-		if tok.startswith(stor.BINPATH + "/sh/"):
+		if tok.startswith(BINPATH + "/sh/"):
 			subprocess.call( exefile.val + " " + val, shell=True )
 		else:
 			subprocess.call( [exefile.val, val], shell=False )
@@ -333,7 +377,7 @@ class FS( CmdProcessor ):
 		dest = None
 		addMode = df.noOverwrite
 		if df.DEST in cmd:
-			if not cmd[df.DEST] or not self.fs.isPathValid( cmd[df.DEST][0] ):
+			if not cmd[df.DEST] or not self._isPathValid( path=cmd[df.DEST][0], cmd ):
 				raise IKException( ErrorCode.unrecognizedParameter,
 						moreInfo = "Parameter '{0}' must contain a valid section name.".format( df.DEST ) )
 			dest = cmd[df.DEST][0]
@@ -342,7 +386,7 @@ class FS( CmdProcessor ):
 				raise IKException( ErrorCode.unrecognizedSyntax,
 						moreInfo = "{0} and {1} cannot be both specified for one command.".format( 
 																		df.DEST, df.PERS ) )
-			dest = stor.PERSPATH
+			dest = PERSPATH
 		if df.FORCE in cmd:
 			addMode = df.overwrite
 		if df.SUM in cmd:
@@ -360,15 +404,15 @@ class FS( CmdProcessor ):
 		cnt = 0
 		#with self.lock_seriz:
 		for tok in cmd["params"]:
-			if (dest and dest.startswith( stor.BINPATH ) ) or \
-					tok.startswith( stor.BINPATH ):
+			if (dest and dest.startswith( BINPATH ) ) or \
+					tok.startswith( BINPATH ):
 				self.handleBinToken( dest, tok, cmd )
 				continue
 
 			# Without --dest or --pers options tokens with relative path
 			# are always added to session tokens
 			if not dest and tok[0] != '/':
-				dest = stor.SESPATH
+				dest = SESPATH
 
 			binaryVal = None
 			if df.BINARY in cmd:
@@ -382,6 +426,10 @@ class FS( CmdProcessor ):
 
 			if dest:
 				tok=joinPath(dest, tok)
+
+			if not self._isPathValid( tok=tok, cmd ):
+				raise IKException( ErrorCode.unsupportedParameterValue, tok[:50], "Path is not valid." )
+
 			sec = self.fs.addItem( tok=tok, addMode=addMode, 
 									binaryVal=binaryVal, attrs = attrs )
 
@@ -393,7 +441,7 @@ class FS( CmdProcessor ):
 		'''Load tokens from a file.'''
 		dest, addMode, attrs = self._getAddOptions( cmd )
 		if not dest:
-			dest = stor.SESPATH
+			dest = SESPATH
 		swFromPars = df.FROM_PARS in cmd
 			
 		if not swFromPars:
@@ -417,6 +465,10 @@ class FS( CmdProcessor ):
 		dst = cmd["params"][1]
 		ret = None
 		if dst[0] == ':':  # cp from file to token
+			
+			if not self._isPathValid( path=dst[1:], cmd ):
+				raise IKException( ErrorCode.unsupportedParameterValue, dst[1:], "Path is not valid" )
+
 			if swFromPars:
 				val = src
 			else:
@@ -427,9 +479,12 @@ class FS( CmdProcessor ):
 			ret = ""
 		elif src[0] == ':':  # cp from token to file
 			src = src[1:]
-			if not self.fs.isPathValid( src ):
-				src = "{0}/{1}".format( stor.PERSPATH if df.PERS in cmd else stor.SESPATH, 
+			if src[0] != '/':
+				src = "{0}/{1}".format( PERSPATH if df.PERS in cmd else SESPATH, 
 									src )
+			else:
+				if not self._isPathValid( path=src, cmd ):
+					raise IKException( ErrorCode.unsupportedParameterValue, src, "Path is not valid" )
 
 			# File is written on the client side
 			ret = self.fs.getItem( src ).val
@@ -440,7 +495,7 @@ class FS( CmdProcessor ):
 		swPers = df.PERS in cmd
 		for i in cmd["params"]:
 			if i[0] != '/':
-				ret = "{0}/{1}".format( stor.PERSPATH if swPers else stor.SESPATH, i )
+				ret = "{0}/{1}".format( PERSPATH if swPers else SESPATH, i )
 			else:
 				ret = i
 			yield ret
@@ -491,6 +546,8 @@ class FS( CmdProcessor ):
 		'''Create section'''
 		feeder = self._getItemFeeder( cmd )
 		for i in feeder:
+			if not self._isPathValid( path=i, cmd ):
+				raise IKException( ErrorCode.unsupportedParameterValue, i, "Path is not valid" )
 			sec = self.fs.addItem( i )
 			if df.ATTRS in cmd:
 				sec.setAttrs( cmd[df.ATTRS] )
