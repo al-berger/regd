@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-14 07:48:37"
+__lastedited__ = "2016-01-24 00:58:39"
 
 import os, subprocess as sp, time
 import regd.defs as defs, regd.cli as cli
@@ -178,7 +178,7 @@ class RegdComm:
 			return res, ret
 
 	def getTokenSec( self, nam, *args, **kwargs ):
-		m = { "cmd": defs.GET_TOKEN_SEC, "params": [nam] }
+		m = { "cmd": defs.GET_ITEM, "params": [nam] }
 		return self.sendCmd( m, args, kwargs )
 
 	def createSection( self, path ):

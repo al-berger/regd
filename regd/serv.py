@@ -1,5 +1,4 @@
-'''
-/********************************************************************
+'''*******************************************************************
 *	Module:			regd.serv
 *
 *	Created:		Jul 5, 2015
@@ -8,11 +7,11 @@
 *
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
-*********************************************************************/
-'''
-__lastedited__ = "2015-12-23 00:19:53"
+********************************************************************'''
+__lastedited__ = "2016-01-23 04:25:56"
 
-import sys, time, subprocess, os, pwd, signal, socket, struct, datetime
+import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
+import multiprocessing as mp
 from threading import Thread
 import ipaddress, shutil
 import regd.defs as defs
@@ -26,11 +25,15 @@ from regd.cmds import CmdSwitcher, CmdProcessor
 
 srv = None
 
+SRV_INFO = "SRV_INFO"
 
 class RegdServer( CmdProcessor ):
 	'''Regd server.'''
 
-	cmdDefs = ( ( defs.STOP_SERVER, "0", None, {defs.NO_VERBOSE}, "chStopServer" ), )
+	cmdDefs = ( ( defs.STOP_SERVER, "0", None, {defs.NO_VERBOSE}, "chStopServer" ), 
+				( SRV_INFO, "?", None, None, "chSrvInfo" ) 
+			)
+
 	
 	# Read-only fields
 	servername 	= ROAttr( "servername", str() )
@@ -47,6 +50,9 @@ class RegdServer( CmdProcessor ):
 		self.port = port
 		self.acc = acc
 		self.sock = None
+		self.sigsock_r = None
+		self.sigsock_w = None
+		self.sel = None
 		self.info = {}
 		self.disposed = False
 
@@ -88,16 +94,21 @@ class RegdServer( CmdProcessor ):
 
 	def close( self ):
 		'''Dispose.'''
+		log.debug("Closing...")
 		if self.disposed:
+			log.debug("Already closed.")
 			return
 		self.disposed = True
-		self.serialize()
 		if os.path.exists( str( self.sockfile ) ):
-			log.info( "Signal is received. Unlinking socket file..." )
+			log.info( "Stopping server: unlinking socket file..." )
 			os.unlink( self.sockfile )
+		log.debug("Closed OK.")
 
-	def start_loop( self ):
-		'''Start loop.'''	
+	def start_loop( self, sigStor ):
+		'''Start loop.'''
+
+		# Check for the previous instance
+
 		if not self.host and os.path.exists( self.sockfile ):
 			log.info( "Socket file for a server with name already exists. Checking for the server process." )
 			'''Socket file may remain after an unclean exit. Check if another server is running.'''
@@ -145,6 +156,8 @@ class RegdServer( CmdProcessor ):
 			log.info( "Starting regd server. useruid: {0} ; sockfile: {1} ; servername: {2}.".format( 
 												self.useruid, self.sockfile, self.servername ) )
 		self.info["time_started"] = str( datetime.datetime.now() ).rpartition( "." )[0]
+		
+		# Set up sockets
 		try:
 			if self.host:
 				self.sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
@@ -162,45 +175,69 @@ class RegdServer( CmdProcessor ):
 			log.error( "Cannot create or bind socket: %s" % ( e ) )
 			return -1
 
-		self.sock.settimeout( 30 )
 		self.sock.listen( 1 )
-		Thread( target=self.loop, name="RegdServerLoop", args=( self.sock, ) ).start()
+		self.sock.settimeout( 30 )
+		self.sel = selectors.DefaultSelector()
+		self.sigsock_r, self.sigsock_w = socket.socketpair()
+		self.sigsock_r.setblocking( False )
+		self.sigsock_w.setblocking( False )
+		os.set_inheritable( self.sigsock_w.fileno(), True )
+		self.sock.setblocking( False )
+		signal.set_wakeup_fd( self.sigsock_w.fileno() )
+		self.sel.register( self.sock, selectors.EVENT_READ, self.accept )
+		self.sel.register( self.sigsock_r, selectors.EVENT_READ, self.stop )
+		self.sel.register( sigStor, selectors.EVENT_READ, self.stop )
+		self.loop( self.sock, )
 
 	def loop( self, sock ):
 		self.cont = True
 		self.exitcode = 0
-		connection = None
 
-		while True:
-			try:
-				connection, client_address = sock.accept()
-			except socket.timeout:
-				if not os.path.exists( self.sockfile ):
-					log.error( "Socket file {0} is gone. Exiting.".format( self.sockfile ) )
-					self.cont = False
-					self.exitcode = 1
-					connection = None
-				else:
-					continue
+		while app.glCont:
+			events = self.sel.select( 30 )
+			for key, mask in events:
+				callback = key.data
+				callback(key.fileobj, mask)
+			
+			if not os.path.exists( self.sockfile ):
+				log.error( "Socket file {0} is gone. Exiting.".format( self.sockfile ) )
+			else:
+				continue
+								
+	def accept(self, sock, mask):
+		try:
+			connection, client_address = sock.accept()
+		except Exception as e:
+			log.error( "Exception occured: ", e )
+			return
 
-			except Exception as e:
-				print( "Exception occured: ", e )
-				connection = None
-				self.cont = False
-
-			if not self.cont:
-				log.info( "Server exiting." )
-				if connection:
-					connection.shutdown( socket.SHUT_RDWR )
-					connection.close()
-				if self.sockfile:
-					os.unlink( self.sockfile )
-				sys.exit( self.exitcode )
-
-			Thread( target = self.handle_connection, name = "handle_connection",
-								args = ( connection, client_address ) ).start()
+		mp.Process( target = self.handle_connection, name = "RegdConnectionHandler",
+							args = ( connection, client_address ) ).start()
+							
+	def stop(self, sock, mask):
+		'''Regd stop handler. The program is normally stopped only through this.
+		It's called when the sigsocket receives input ( including notification 
+		about a signal ). '''
+		log.info("Stopping server...")
+		if app.glCont:
+			app.glCont = False
+			app.glSignal.acquire()
+			app.glSignal.notify()
+			app.glSignal.release()
+		self.close()
+			
+	def chSrvInfo( self, cmd ):
+		path = cmd.get("params")
+		if not path:
+			return util.printMap( self.info, 0 )
+		else:
+			path = path[0]
+			item = self.getItem( path )
+			m = item.stat()
+			return util.printMap( m, 0 )
 
 	def handle_connection( self, *args ):
+		'''Exceptions-catcher wrapper'''
 		connection = args[0]
 		client_address = args[1]
 		try:
@@ -211,14 +248,14 @@ class RegdServer( CmdProcessor ):
 
 		except Exception as e:
 			log.error( "Exception in server loop. Exiting. %s" % ( e ) )
-			self.cont = False
-			self.exitcode = -1
+			self.sigsock_w.send("stop".encode())
 
 		finally:
 			connection.shutdown( socket.SHUT_RDWR )
 			connection.close()
 
 	def _handle_connection( self, connection, client_address ):
+		'''Connection handler'''
 		if not self.host:
 			creds = connection.getsockopt( socket.SOL_SOCKET, socket.SO_PEERCRED,
 									struct.calcsize( "3i" ) )
@@ -241,6 +278,8 @@ class RegdServer( CmdProcessor ):
 		
 		try:
 			dcmd = util.parsePacket( data )
+			if "internal" in dcmd:
+				raise Exception("Unrecognized syntax.")
 			cmd = dcmd["cmd"]
 			log.debug( "command received: {0}".format( cmd ) )
 		except Exception as e:
@@ -285,50 +324,19 @@ class RegdServer( CmdProcessor ):
 			#	bresp = composeResponse( "0", str( IKException( ErrorCode.operationFailed, None, "Persistent tokens are not enabled." ) ) )
 		
 		if not len( bresp ):
-			try:
-				bresp = CmdSwitcher.switchCmd( dcmd )
-			except IKException as e:
-				bresp = composeResponse( '0', str( e ) )
-			except Exception as e:
-				bresp = composeResponse( '0', e.args[0] )
+			bresp = CmdSwitcher.handleCmd( dcmd )
 
 		try:
-			if not len( bresp ):
-				bresp = composeResponse( "0", "Command not recognized" )
 			util.sendPack( connection, bresp )
 		except OSError as er:
 			log.error( "Socket error {0}: {1}\nClient address: {2}\n".format( 
 							er.errno, er.strerror, client_address ) )
 
 		if cmd == defs.STOP_SERVER and perm:
-			app.glSignal.acquire()
-			app.glSignal.notify()
-			app.glSignal.release()
+			self.sigsock_w.send("stop".encode())
 
 		return
 
-	def serialize( self ):
-		'''Serializing persistent tokens.'''
-		if not stor.changed:
-			return
-		with stor.lock_changed:
-			ch_ = stor.changed[:]
-			stor.changed = []
-		# Finding a common path separately for each serializable root
-		for r in stor.serializable_roots:
-			l = [x.pathName() for x in ch_ if x.pathName().startswith( r )]
-			if not l:
-				continue
-			commonPath = os.path.commonpath( l )
-			sec = self.fs.getItem( commonPath )
-			fhd = {}
-			sec.serialize( fhd, read = False )
-			for fpath, fh in fhd.items():
-				if fpath == "cur":
-					continue
-				fh.close()
-				shutil.move( fpath, fpath[:-4] )
-				
 	def handleBinToken(self, dest, tok, optmap):
 		if dest:
 			tok = os.path.join( dest, tok )
@@ -343,5 +351,6 @@ class RegdServer( CmdProcessor ):
 
 	def chStopServer( self, cmd ):
 		'''Stop regd server'''
+		log.debug("In chStopServer")
 		return composeResponse( '1', "Exiting..." )
 

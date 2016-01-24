@@ -11,14 +11,15 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2015-12-23 21:00:46"
+__lastedited__ = "2016-01-24 03:54:06"
 
-import os, subprocess, shutil, io
-from multiprocessing import Process, Pipe
+import sys, os, subprocess, shutil, io
+from multiprocessing import Process, Pipe, Lock
+from socket import SHUT_RDWR, socketpair
 from regd.stor import getstor
 import regd.stor as stor
 import regd.app as app
-from regd.util import log, composeResponse, joinPath
+from regd.util import log, logtok, composeResponse, joinPath
 from regd.app import IKException, ErrorCode, ROAttr
 from regd.cmds import CmdProcessor, registerGroupHandler
 import regd.util as util
@@ -28,6 +29,7 @@ import regd.tok as modtok
 # Class commands
 
 FS_INFO = "FS_INFO"
+FS_STOP = "FS_STOP"
 
 
 class FS( CmdProcessor ):
@@ -45,7 +47,6 @@ class FS( CmdProcessor ):
 	( df.LIST, "?", None, { df.TREE, df.NOVALUES, df.RECURS }, "chListItems" ),
 	( df.GET_ITEM, "1+", None, {df.PERS}, "chGetItem" ),
 	( df.ADD_TOKEN, "1+", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.BINARY, df.SUM }, "chAddToken" ),
-	( df.ADD_TOKEN_SEC, "1+", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.BINARY, df.SUM }, "chAddTokenSec" ),
 	( df.LOAD_FILE, "1+", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.FROM_PARS }, "chLoadFile" ),
 	( df.COPY_FILE, "2", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.BINARY }, "chCopyFile" ),
 	( df.REMOVE_TOKEN, "1+", None, {df.PERS}, "chRemoveToken" ),
@@ -53,17 +54,15 @@ class FS( CmdProcessor ):
 	( df.CREATE_SECTION, "1+", None, {df.PERS}, "chCreateSection" ),
 	( df.RENAME, "1+", None, {df.PERS}, "chRename" ),
 	( df.LOAD_FILE_SEC, "?", None, None, "chLoadFileSec" ),
-	( df.GET_TOKEN_SEC, "1", None, None, "chGetTokenSec" ),
-	( df.REMOVE_TOKEN_SEC, "1", None, None, "chRemoveTokenSec" ),
-	( df.REMOVE_SECTION_SEC, "1", None, None, "chRemoveSectionSec" ),
-	( df.CLEAR_SEC, "0", None, None, "chClearSec" ),
 	( df.CLEAR_SESSION, "0", None, None, "chClearSessionTokens" ), 
-	( FS_INFO, "?", None, None, "chFsInfo" ) 
+	( FS_INFO, "?", None, None, "chFsInfo" ), 
+	( FS_STOP, "0", None, None, "chFsStop" ) 
 	)
 
-	def __init__(self, conn, datafile, binsecfile=None ):
+	def __init__(self, conn, acc, datafile, binsecfile=None ):
 		super( FS, self ).__init__( conn )
 		
+		self.acc = acc
 		self.datafile = datafile
 		self.binsecfile = binsecfile
 		self.info = {}
@@ -86,8 +85,6 @@ class FS( CmdProcessor ):
 		self.tokens.rootStor 		= self.tokens
 		self.bintokens.rootStor 	= self.bintokens
 		
-		self.sectokens = getstor(rootStor=None)
-			
 		self.useruid = None
 
 		# Default encrypted file name
@@ -142,27 +139,21 @@ class FS( CmdProcessor ):
 	def __getattr__( self, attrname ):
 		pass
 		#return getattr( self.fs, attrname )
-		
+
 	def getTokenSec( self, pathName ):
 		'''Get secure token'''
-		if not len( self.sectokens ):
-			'''Sec tokens are not read yet. Read the default priv. file.'''
-			if not self.defencread:
-				self.read_sec_file()
-				self.defencread = True
-		return self.sectokens.getItem( pathName )
+		try:
+			ret = self.fs.getItem( pathName ).value()
+			return ret
+		except IKException as e:
+			if e.code == ErrorCode.objectNotExists:
+				if not self.defencread:
+					self.read_sec_file()
+					self.defencread = True
+				else:
+					raise
 
-	def removeTokenSec( self, pathName ):
-		'''Remove secure token'''
-		self.sectokens.removeItem( pathName )
-
-	def removeSectionSec( self, pathName ):
-		'''Remove secure section'''
-		self.sectokens.removeItem( pathName )
-
-	def clearTokensSec( self ):
-		'''Remove secure token'''
-		self.sectokens.clear()
+		return self.fs.getItem( pathName ).value()
 
 	def clearSessionTokens( self ):
 		'''Remove secure token'''
@@ -180,14 +171,16 @@ class FS( CmdProcessor ):
 		try:
 			if not cmd:
 				cmd = self.secTokCmd.replace( "FILENAME", "{0}" ).format( filename )
+			ftxt = "Calling read private file command..."
 			ftxt = subprocess.check_output( cmd,
 								shell = True, stderr = subprocess.DEVNULL )
 		except subprocess.CalledProcessError as e:
-			log.error( ftxt )
+			log.error( e.output + ftxt )
 			raise IKException( ErrorCode.operationFailed, e.output )
 		
 		fh = io.BytesIO( ftxt )
-		self.sectokens.readFromFile( fh=fh, addMode=addMode )
+		fh.name = "BytesIO:" + filename
+		self.fs.readFromFile( fh=fh, dest="/ses", addMode=addMode )
 
 	def serialize( self ):
 		'''Serializing persistent tokens.'''
@@ -224,11 +217,21 @@ class FS( CmdProcessor ):
 			subprocess.call( [exefile.val, val], shell=False )
 	
 	@staticmethod
-	def start_loop( conn, datafile, binsectfile ):
+	def start_loop( conn, sigConn, acc, datafile, binsectfile ):
 		'''Create FS instance and start loop'''
-		fs = FS( conn, datafile, binsectfile )
+		util.setLog("DEBUG")
+		fs = FS( conn, acc, datafile, binsectfile )
 		log.info( "Starting listening for messages..." )
-		fs.listenForMessages( fs.serialize )
+		try:
+			fs.listenForMessages( fs.serialize )
+		except Exception as e:
+			log.error( "Exception received: {0}".format( e ) )
+			#fs.conn.shutdown(SHUT_RDWR)
+		conn.close()
+		sigConn.send( "Exception in storage".encode() )
+		sigConn.shutdown( SHUT_RDWR )
+		sigConn.close()
+
 		log.info( "Ended listening for messages. Quitting..." )
 		return 0
 		
@@ -236,9 +239,9 @@ class FS( CmdProcessor ):
 		self.cont = True
 		while self.cont:
 			if self.datafile:
-				if self.lock_seriz.acquire( blocking = False ):
-					self.serialize()
-					self.lock_seriz.release()
+				#if self.lock_seriz.acquire( blocking = False ):
+				self.serialize()
+				#self.lock_seriz.release()
 			self.quitCond.acquire()
 			self.quitCond.wait( 30 )
 
@@ -251,6 +254,13 @@ class FS( CmdProcessor ):
 			item = self.getItem( path )
 			m = item.stat()
 			return util.printMap( m, 0 )
+
+	def chFsStop( self, cmd ):
+		self.cont = False
+		log.info("Stopping storage... Serializing...")
+		self.serialize()
+		log.info("Storage exiting.")
+		return composeResponse()
 
 	def chPathExists( self, cmd ):
 		'''Return True if a token path exists'''
@@ -294,14 +304,14 @@ class FS( CmdProcessor ):
 		# read the file contents into an item, loadFile function is used.
 		if [x for x in cmd[df.ATTRS] if x.startswith( stor.SItem.persPathAttrName + "=" )]:
 			# TODO: move the call to fs.serialize to item, where thread sync is 
-			with self.lock_seriz:
-				self.fs.serialize()
+			#with self.lock_seriz:
+			self.fs.serialize()
 
 		return composeResponse()
 
 	def chListItems( self, cmd ):
 		'''List items'''
-		par = cmd["params"]
+		par = cmd.get( "params", None )
 		swNovals = df.NOVALUES in cmd
 		swTree = df.TREE in cmd
 		swRecur = df.RECURS in cmd
@@ -348,32 +358,34 @@ class FS( CmdProcessor ):
 		'''Add item'''
 		dest, addMode, attrs = self._getAddOptions( cmd )
 		cnt = 0
-		with self.lock_seriz:
-			for tok in cmd["params"]:
-				if (dest and dest.startswith( stor.BINPATH ) ) or \
-						tok.startswith( stor.BINPATH ):
-					self.handleBinToken( dest, tok, cmd )
-					continue
-	
-				# Without --dest or --pers options tokens with relative path
-				# are always added to session tokens
-				if not dest and tok[0] != '/':
-					dest = stor.SESPATH
-	
-				binaryVal = None
-				if df.BINARY in cmd:
-					if not cmd[df.BINARY] or len( cmd[df.BINARY] ) < cnt + 1:
-						raise IKException( ErrorCode.unknownDataFormat, tok )
-					binaryVal = cmd[df.BINARY][cnt]
-					attrs[stor.SItem.persPathAttrName] = df.BINARY
-					cnt += 1
-	
-				if dest:
-					tok=joinPath(dest, tok)
-				sec = self.fs.addItem( tok=tok, addMode=addMode, 
-										binaryVal=binaryVal, attrs = attrs )
-	
-				if sec: sec.markChanged()
+		#with self.lock_seriz:
+		for tok in cmd["params"]:
+			if (dest and dest.startswith( stor.BINPATH ) ) or \
+					tok.startswith( stor.BINPATH ):
+				self.handleBinToken( dest, tok, cmd )
+				continue
+
+			# Without --dest or --pers options tokens with relative path
+			# are always added to session tokens
+			if not dest and tok[0] != '/':
+				dest = stor.SESPATH
+
+			binaryVal = None
+			if df.BINARY in cmd:
+				if not cmd[df.BINARY] or len( cmd[df.BINARY] ) < cnt + 1:
+					raise IKException( ErrorCode.unknownDataFormat, tok )
+				binaryVal = cmd[df.BINARY][cnt]
+				if not attrs:
+					attrs = {}
+				attrs[stor.SItem.persPathAttrName] = df.BINARY
+				cnt += 1
+
+			if dest:
+				tok=joinPath(dest, tok)
+			sec = self.fs.addItem( tok=tok, addMode=addMode, 
+									binaryVal=binaryVal, attrs = attrs )
+
+			if sec: sec.markChanged()
 
 		return composeResponse( )
 
@@ -459,12 +471,29 @@ class FS( CmdProcessor ):
 
 	def chGetItem( self, cmd ):
 		'''Get item'''
+		log.debug( "In chGetItem()")
 		feeder = self._getItemFeeder( cmd )
+		
+		if self.acc == df.PL_SECURE:
+			nam = feeder.__next__()
+			try:
+				ret = self.fs.getItem( nam ).value()
+				return composeResponse( '1', ret )
+			except IKException as e:
+				if e.code == ErrorCode.objectNotExists:
+					if not self.defencread:
+						self.read_sec_file()
+						self.defencread = True
+					else:
+						raise
+
+			return composeResponse( '1', self.fs.getItem( nam ).value() )
+
 		lres = []
 		for i in feeder:
-			lres.append( self.fs.getItem( i ) )
+			lres.append( self.fs.getItem( i ).value() )
 
-		return composeResponse( '1', lres )
+		return composeResponse( '1', lres if len(lres) != 1 else lres[0] )
 
 	def chRemoveToken( self, cmd ):
 		'''Remove token'''
@@ -510,49 +539,48 @@ class FS( CmdProcessor ):
 		else:
 			file = file[0]
 		
-		self.fs.read_sec_file( file )
+		self.read_sec_file( file )
 		return composeResponse( )
-
-	def chGetTokenSec( self, cmd ):
-		'''Get secure token'''
-		par = cmd["params"][0]
-		tok = self.fs.getTokenSec( par ).val
-		return composeResponse( '1', tok )
-
-	def chRemoveTokenSec( self, cmd ):
-		'''Remove secure token'''
-		self.fs.removeTokenSec( cmd["params"][0] )
-		return composeResponse()
-
-	def chRemoveSectionSec( self, cmd ):
-		'''Remove secure section'''
-		self.fs.removeSectionSec( cmd["params"][0] )
-		return composeResponse()
-
-	def chClearSec( self, cmd ):
-		'''Clear secure tokens'''
-		self.fs.clearTokensSec( )
-		return composeResponse()
 
 	def chClearSessionTokens( self, cmd ):
 		'''Clear session tokens'''
-		self.fs.clearTokensSec( )
-		self.fs.clearSessionTokens( )
+		self.clearTokensSec( )
+		self.clearSessionTokens( )
 		return composeResponse()
 
-def startStorage( datafile, binsectfile ):
+def startStorage( acc, datafile, binsectfile ):
 	'''Starts storage in new process'''
 	connHere, connThere = Pipe( True )
-	
+	sigHere, sigThere = socketpair()
+	sigHere.setblocking( False )
+	sigThere.setblocking( False )
+	os.set_inheritable( sigThere.fileno(), True )
+	connLock = Lock()
+
 	def sendMsgToStorage( cmd ):
 		'''Forwarder of messages to storage'''
-		connHere.send( cmd )
-		return connHere.recv()
+		log.debug("In sendMsgToStorage - cmd: {0}".format( cmd ) )
+		try:
+			with connLock:
+				log.debug( "Sending..." )
+				connHere.send( cmd )
+				log.debug( "Sent. Receiving..." )
+				if connHere.poll( 3 ):
+					ret = connHere.recv()
+					log.debug("In sendMsgToStorage - ret: {0}".format( ret ) )
+				else:
+					ret = composeResponse("0", "Socket timed out or no data to receive.")
+					log.debug( "Nothing to receive" )
+		except Exception as e:
+			ret = str( e )
+			log.error("In sendMsgToStorage exception received: {0}".format( ret ) )
+		
+		return ret
 		
 	FS.registerGroupHandlers( sendMsgToStorage )
 	
 	log.info( "Starting storage process..." )
-	p = Process( target=FS.start_loop, args=(connThere, datafile, binsectfile), 
+	p = Process( target=FS.start_loop, args=(connThere, sigThere, acc, datafile, binsectfile), 
 			name="Regd Storage" )
 	p.start()
 	if p.is_alive():
@@ -561,4 +589,4 @@ def startStorage( datafile, binsectfile ):
 		log.info( "Failed to start storage." )
 		raise IKException( ErrorCode.operationFailed, "Failed to start storage."  )
 	
-	return connHere
+	return connHere, sigHere

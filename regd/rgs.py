@@ -11,7 +11,7 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2015-12-23 21:02:28"
+__lastedited__ = "2016-01-24 00:56:53"
 
 import signal
 import regd.serv as serv
@@ -27,12 +27,11 @@ class Registry():
 	def __init__(self, ):
 		"""TODO: to be defined1. """
 		
-# The regd registry server process contains three permanently running threads:
-# - startRegistry function : main
+# The regd registry consists of two permanently running processes:
 # - srv : server
 # - fs : storage
-# The main thread listens for signals and performs graceful shutdown when a signal is
-# received.
+# and temporary processes created for handling incoming server commands.
+#
 # The server thread is blocking in socket listening and is interrupted from block by
 # setting the 'cont' variable to False and closing the socket.
 # The storage thread is blocking in waiting for condition with timeout between regular 
@@ -44,16 +43,15 @@ def startRegistry( servername, sockfile = None, host = None, port = None, acc = 
 	srv = connStor = None
 	
 	def shutdown():
-		nonlocal srv, connStor
-		# Stopping the server
-		srv.cont = False
-		srv.sock.close()
-		srv.close()
-		# Stopping the storage
-		connStor.close()
+		log.info("Registry is shutting down...")
+		cmds.CmdSwitcher.switchCmd( { "cmd" : fs.FS_STOP } )
+		log.info( "Shutdown complete." )
 		
 	def signal_handler( signal, frame ):
-		shutdown()
+		#shutdown()
+		# Returning normally, so that the signal notification be forwarded to
+		# the wakeup socket.
+		return
 		
 	sigHandler.push( signal.SIGINT, signal_handler )
 	sigHandler.push( signal.SIGTERM, signal_handler )
@@ -67,19 +65,20 @@ def startRegistry( servername, sockfile = None, host = None, port = None, acc = 
 		srv = serv.RegdServer( servername, sockfile, host, port, acc )
 		# Storage
 		log.debug( "Creating storage")
-		connStor = fs.startStorage( datafile, binsecfile )
+		connStor, sigStor = fs.startStorage( acc, datafile, binsecfile )
 		# Info
 		log.debug( "Creating info")
 		info.Info( )
 		log.debug( "Starting server")
-		srv.start_loop()
+		srv.start_loop( sigStor )
 	except Exception as e:
 		log.error( "Failed to start server: {0}".format( e ) )
 	else:
-		glSignal.acquire()
+		#glSignal.acquire()
 		# Wait till notification on df.SERVER_STOP 
-		glSignal.wait()
+		#glSignal.wait()
 		shutdown()
+		log.info( "Exiting." )
 
 
 		
