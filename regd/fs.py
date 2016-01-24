@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-01-24 03:54:06"
+__lastedited__ = "2016-01-24 13:01:19"
 
 import sys, os, subprocess, shutil, io
 from multiprocessing import Process, Pipe, Lock
@@ -388,30 +388,6 @@ class FS( CmdProcessor ):
 			if sec: sec.markChanged()
 
 		return composeResponse( )
-
-	def chAddTokenSec( self, cmd ):
-		'''Add item'''
-		dest, addMode, attrs = self._getAddOptions( cmd )
-		cnt = 0
-
-		for tok in cmd["params"]:
-			binaryVal = None
-			if df.BINARY in cmd:
-				if not cmd[df.BINARY] or len( cmd[df.BINARY] ) < cnt + 1:
-					raise IKException( ErrorCode.unknownDataFormat, tok )
-				binaryVal = cmd[df.BINARY][cnt]
-				attrs[stor.SItem.persPathAttrName] = df.BINARY
-				cnt += 1
-
-			if dest:
-				tok=joinPath(dest, tok)
-			sec = self.fs.sectokens.addItem( tok=tok, addMode=addMode, 
-									binaryVal=binaryVal, attrs = attrs )
-
-			# TODO: serialization of secure items
-			if sec: sec.markChanged()
-
-		return composeResponse()
 
 	def chLoadFile( self, cmd ):
 		'''Load tokens from a file.'''
