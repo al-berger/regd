@@ -10,12 +10,12 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-24 01:32:01"
+__lastedited__ = "2016-01-25 22:29:57"
 
 import regd.app as app
 from regd.app import APPNAME
 
-VERSION = ( 0, 7, 0, 33 )
+VERSION = ( 0, 7, 0, 34 )
 __version__ = '.'.join( [str( x ) for x in VERSION[0:3]] )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
@@ -35,6 +35,7 @@ PL_PRIVATE			 = 0o770
 PL_PUBLIC_READ		 = 0o775
 PL_PUBLIC			 = 0o777
 
+PL_NAMES = { PL_SECURE: "secure", PL_PRIVATE: "private", PL_PUBLIC_READ: "public-read", PL_PUBLIC: "public" }
 
 # Command names
 START_SERVER		 = "start"

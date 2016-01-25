@@ -11,7 +11,7 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2015-12-23 00:20:45"
+__lastedited__ = "2016-01-25 22:27:52"
 
 from datetime import datetime
 from regd.cmds import CmdSwitcher, CmdProcessor
@@ -52,13 +52,17 @@ class Info( CmdProcessor ):
 	def chInfo( self, cmd ):
 		'''Report server information'''
 		# pylint: disable=unused-variable
+		accl = getShared( "accLevel" )
+		dfile = getShared( "dataFile" )
+		sfile = getShared( "sockFile" )
+
 		resp = "{0} : {1}\n".format( app.APPNAME, df.__description__ )
 		resp += "License: {0}\n".format( df.__license__ )
 		resp += "Homepage: {0}\n\n".format( df.__homepage__ )
 		resp += "Server version: {0}\n".format( df.rversion )
-		resp += "Server datafile: {0}\n".format( self.fs.datafile )
-		resp += "Server access: {0}\n".format( oct( self.srv.acc) )
-		resp += "Server socket file: {0}\n".format( self.srv.sockfile )
+		resp += "Server datafile: {0}\n".format( dfile )
+		resp += "Server access: {0}\n".format( accl )
+		resp += "Server socket file: {0}\n".format( sfile )
 
 		return composeResponse( "1", resp )
 
@@ -94,7 +98,10 @@ class Info( CmdProcessor ):
 			resp = self.fs.stat( path )
 		elif par == df.REP_SERVER:
 			# TODO:
-			pass
+			bs = getShared( "bytesSent" )
+			br = getShared( "bytesReceived" )
+			resp += "Bytes sent: {0}\n".format( bs )
+			resp += "Bytes received: {0}\n".format( br )
 		elif par == df.REP_COMMANDS:
 			resp = util.printMap( self.info["cmd"], 0)
 			pass
@@ -105,3 +112,20 @@ class Info( CmdProcessor ):
 			resp = "Unrecognized command parameter: " + par
 
 		return composeResponse( retCode, resp )
+
+def setShared( nam, val, mode=None ):
+	tok = "{0}={1}".format( util.joinPath( "/_sys", nam ), val )
+	cmd = { "cmd": df.ADD_TOKEN, "params": [tok], "internal": True }
+	if mode == df.FORCE:
+		cmd[df.FORCE] = True
+	elif mode == df.SUM:
+		cmd[df.SUM] = True
+	return CmdSwitcher.switchCmd( cmd )
+
+def getShared( nam ):
+	tok = util.joinPath( "/_sys", nam )
+	cmd = { "cmd": df.GET_ITEM, "params": [tok], "internal": True }
+	ret = CmdSwitcher.switchCmd( cmd )
+	ret = util.parsePacket( ret )
+	return ret[1]
+

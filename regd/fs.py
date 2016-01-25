@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-01-24 15:57:19"
+__lastedited__ = "2016-01-25 22:32:13"
 
 import sys, os, subprocess, shutil, io
 from multiprocessing import Process, Pipe, Lock
@@ -21,7 +21,7 @@ import regd.stor as stor
 import regd.app as app
 from regd.util import log, logtok, composeResponse, joinPath
 from regd.app import IKException, ErrorCode, ROAttr
-from regd.cmds import CmdProcessor, registerGroupHandler
+from regd.cmds import CmdProcessor, CmdSwitcher, registerGroupHandler
 import regd.util as util
 import regd.defs as df
 import regd.tok as modtok
@@ -31,14 +31,21 @@ import regd.tok as modtok
 FS_INFO = "FS_INFO"
 FS_STOP = "FS_STOP"
 
+# persistent
 PERSNAME = "sav"
+# session
 SESNAME = "ses"
+# /bin
 BINNAME = "bin"
+# internal data
+SYSNAME = "_sys"
+
 PERSPATH = "/" + PERSNAME
 SESPATH = "/" + SESNAME
 BINPATH = "/" + BINNAME
+SYSPATH = "/" + SYSNAME
 
-rootdirs = (SESPATH, PERSPATH, BINPATH)
+rootdirs = (SESPATH, PERSPATH, BINPATH, SYSPATH)
 serializable_roots = (PERSPATH, BINPATH)
 
 class FS( CmdProcessor ):
@@ -54,8 +61,8 @@ class FS( CmdProcessor ):
 	( df.GETATTR, "1", {df.ATTRS}, None, "chGetAttr" ),
 	( df.SETATTR, "1", {df.ATTRS}, None, "chSetAttr" ),
 	( df.LIST, "?", None, { df.TREE, df.NOVALUES, df.RECURS }, "chListItems" ),
-	( df.GET_ITEM, "1+", None, {df.PERS}, "chGetItem" ),
-	( df.ADD_TOKEN, "1+", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.BINARY, df.SUM }, "chAddToken" ),
+	( df.GET_ITEM, "1+", None, {df.PERS, "internal"}, "chGetItem" ),
+	( df.ADD_TOKEN, "1+", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.BINARY, df.SUM, "internal" }, "chAddToken" ),
 	( df.LOAD_FILE, "1+", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.FROM_PARS }, "chLoadFile" ),
 	( df.COPY_FILE, "2", None, { df.FORCE, df.PERS, df.DEST, df.ATTRS, df.BINARY }, "chCopyFile" ),
 	( df.REMOVE_TOKEN, "1+", None, {df.PERS}, "chRemoveToken" ),
@@ -81,17 +88,20 @@ class FS( CmdProcessor ):
 		
 		self.tokens 	= getstor( rootStor=None, mode=0o777 )
 		self.bintokens 	= getstor( rootStor = None, mode=0o777)
+		self.systokens 	= getstor( rootStor=None, mode=0o600 )
 		
 		self.fs[''] = getstor(rootStor=None, mode=0o555)
 		self.fs[''][SESNAME] = self.tokens
-		# Bin section tokens
+		self.fs[''][SYSNAME] = self.systokens
 		self.fs[''][BINNAME] = self.bintokens
+
 		if self.binsecfile:
 			self.fs.setItemAttr( BINPATH, ( "{0}={1}".format( 
 					stor.SItem.persPathAttrName, self.binsecfile ), ) )
 			
 		self.tokens.rootStor 		= self.tokens
 		self.bintokens.rootStor 	= self.bintokens
+		self.systokens.rootStor		= self.systokens
 		
 		self.useruid = None
 
@@ -144,6 +154,9 @@ class FS( CmdProcessor ):
 			self.encFile = d["encfile"]
 		if "encfile_read_cmd" in d:
 			self.secTokCmd = d["encfile_read_cmd"]
+
+		# Storing shared info
+		self.fs[''][SYSNAME]["dataFile"] = self.datafile
 		
 	def __getattr__( self, attrname ):
 		pass
@@ -164,24 +177,17 @@ class FS( CmdProcessor ):
 
 		return self.fs.getItem( pathName ).value()
 
-	def _isPathValid( self, tok=None, path=None, cmd ):
+	def _isPathValid( self, tok=None, path=None, cmd=None ):
 		'''Check the validity of an absolute path name.'''
 		if tok:
 			path = modtok.parse_token( tok, df.yes )[0]
+			path = "/".join( path )
 		
 		if not path:
 			return False
 
 		if path[0] != '/':
 			return False
-
- 		if path[0] != '/':
-			if self.name:
-				path = self.pathName() + "/" + path
-		else:
-			# Absolute paths can only be added at the root section
-			if self.name:
- 				return False
 
 		b = False
 		for d in rootdirs:
@@ -377,7 +383,7 @@ class FS( CmdProcessor ):
 		dest = None
 		addMode = df.noOverwrite
 		if df.DEST in cmd:
-			if not cmd[df.DEST] or not self._isPathValid( path=cmd[df.DEST][0], cmd ):
+			if not cmd[df.DEST] or not self._isPathValid( path=cmd[df.DEST][0], cmd=cmd ):
 				raise IKException( ErrorCode.unrecognizedParameter,
 						moreInfo = "Parameter '{0}' must contain a valid section name.".format( df.DEST ) )
 			dest = cmd[df.DEST][0]
@@ -427,7 +433,7 @@ class FS( CmdProcessor ):
 			if dest:
 				tok=joinPath(dest, tok)
 
-			if not self._isPathValid( tok=tok, cmd ):
+			if not self._isPathValid( tok=tok, cmd=cmd ):
 				raise IKException( ErrorCode.unsupportedParameterValue, tok[:50], "Path is not valid." )
 
 			sec = self.fs.addItem( tok=tok, addMode=addMode, 
@@ -466,7 +472,7 @@ class FS( CmdProcessor ):
 		ret = None
 		if dst[0] == ':':  # cp from file to token
 			
-			if not self._isPathValid( path=dst[1:], cmd ):
+			if not self._isPathValid( path=dst[1:], cmd=cmd ):
 				raise IKException( ErrorCode.unsupportedParameterValue, dst[1:], "Path is not valid" )
 
 			if swFromPars:
@@ -483,7 +489,7 @@ class FS( CmdProcessor ):
 				src = "{0}/{1}".format( PERSPATH if df.PERS in cmd else SESPATH, 
 									src )
 			else:
-				if not self._isPathValid( path=src, cmd ):
+				if not self._isPathValid( path=src, cmd=cmd ):
 					raise IKException( ErrorCode.unsupportedParameterValue, src, "Path is not valid" )
 
 			# File is written on the client side
@@ -502,7 +508,6 @@ class FS( CmdProcessor ):
 
 	def chGetItem( self, cmd ):
 		'''Get item'''
-		log.debug( "In chGetItem()")
 		feeder = self._getItemFeeder( cmd )
 		
 		if self.acc == df.PL_SECURE:
@@ -546,7 +551,7 @@ class FS( CmdProcessor ):
 		'''Create section'''
 		feeder = self._getItemFeeder( cmd )
 		for i in feeder:
-			if not self._isPathValid( path=i, cmd ):
+			if not self._isPathValid( path=i, cmd=cmd ):
 				raise IKException( ErrorCode.unsupportedParameterValue, i, "Path is not valid" )
 			sec = self.fs.addItem( i )
 			if df.ATTRS in cmd:
@@ -609,9 +614,9 @@ def startStorage( acc, datafile, binsectfile ):
 			log.error("In sendMsgToStorage exception received: {0}".format( ret ) )
 		
 		return ret
-		
+
 	FS.registerGroupHandlers( sendMsgToStorage )
-	
+
 	log.info( "Starting storage process..." )
 	p = Process( target=FS.start_loop, args=(connThere, sigThere, acc, datafile, binsectfile), 
 			name="Regd Storage" )
@@ -621,5 +626,6 @@ def startStorage( acc, datafile, binsectfile ):
 	else:
 		log.info( "Failed to start storage." )
 		raise IKException( ErrorCode.operationFailed, "Failed to start storage."  )
-	
+
 	return connHere, sigHere
+

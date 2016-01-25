@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2016-01-01 22:40:14"
+__lastedited__ = "2016-01-25 20:20:36"
 
 import os, pwd, logging, re, json, io
 import regd.defs as defs
@@ -154,6 +154,7 @@ def sendPack( sock, pack ):
 	cmdpack = bytearray( packlen, encoding = 'utf-8' )
 	cmdpack.extend( pack )
 	sock.sendall( cmdpack )
+	return len( cmdpack )
 
 def createPacket( cpars : "in map" ):
 	'''Create a command packet for sending to a regd server.'''
@@ -418,7 +419,6 @@ def parseResponse( resp : "byte array with server response",
 		raise IKException( ErrorCode.unknownDataFormat, resp[:20] )
 	lres.append( res.decode( 'utf-8' ) )
 	unpackObject( [data], lres )
-
 
 def getLog( n ):
 	d = {}
