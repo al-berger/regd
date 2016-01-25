@@ -11,8 +11,9 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-01-24 03:08:36"
+__lastedited__ = "2016-01-25 20:47:21"
 
+import io, traceback
 from regd.app import IKException, ErrorCode
 import regd.defs as df
 import regd.util as util
@@ -113,11 +114,13 @@ class CmdProcessor:
 					try:
 						resp = self.processCmd( cmd )
 					except IKException as e:
-						resp = util.composeResponse( "0", "In listenForMessages - exception received: {0}.\n Continue listening...".format( e ) )
+						resp = util.composeResponse( "0", "In listenForMessages - exception received: {0}. Continue listening...".format( e ) )
 						log.error( resp  )
 					self.conn.send( resp )
 				except Exception as e:
-					log.error( "In listenForMessages - exception received: {0}.\n Quit listening...".format( e ) )
+					fh = io.StringIO()
+					traceback.print_exc( file=fh )
+					log.error( "In listenForMessages - fatal exception received: {0}. Quit listening...".format( fh.getvalue() ) )
 					raise
 			else:
 				func()

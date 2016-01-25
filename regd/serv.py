@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 ********************************************************************'''
-__lastedited__ = "2016-01-24 13:28:10"
+__lastedited__ = "2016-01-25 22:22:00"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
 import multiprocessing as mp
@@ -22,6 +22,7 @@ import regd.stor as stor
 import regd.app as app
 import regd.tok as modtok
 from regd.cmds import CmdSwitcher, CmdProcessor
+import regd.info as info
 
 srv = None
 
@@ -86,6 +87,8 @@ class RegdServer( CmdProcessor ):
 					
 		RegdServer.registerGroupHandlers( self.processCmd )
 
+		info.setShared( "accLevel","{0} ({1})".format( defs.PL_NAMES[self.acc], oct(self.acc) ) )
+		info.setShared( "sockFile", self.sockfile )
 
 	def __del__( self ):
 		# close() is better to be called earlier in order for closing routines not be
@@ -268,6 +271,7 @@ class RegdServer( CmdProcessor ):
 
 		data = bytearray()
 		util.recvPack( connection, data )
+		bytesReceived = len( data )
 
 		log.debug( "data: %s" % ( data[:1000] ) )
 		data = data[10:]  # .decode( 'utf-8' )
@@ -328,10 +332,13 @@ class RegdServer( CmdProcessor ):
 			bresp = CmdSwitcher.handleCmd( dcmd )
 
 		try:
-			util.sendPack( connection, bresp )
+			bytesSent = util.sendPack( connection, bresp )
 		except OSError as er:
 			log.error( "Socket error {0}: {1}\nClient address: {2}\n".format( 
 							er.errno, er.strerror, client_address ) )
+		else:
+			info.setShared( "bytesReceived", bytesReceived, defs.SUM )
+			info.setShared( "bytesSent", bytesSent, defs.SUM )
 
 		if cmd == defs.STOP_SERVER and perm:
 			self.sigsock_w.send("stop".encode())

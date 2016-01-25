@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-24 15:54:05"
+__lastedited__ = "2016-01-25 21:28:25"
 
 import sys, re, os, time, threading, shutil
 from enum import Enum
@@ -409,6 +409,7 @@ class SVal( SItem ):
 			self.changed = False
 
 class Stor( SItem, dict ):
+	'''Section'''
 	def __init__( self, rootStor, name = '', mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
 				nlink = None ):
 		self.path = ''
@@ -653,7 +654,8 @@ class Stor( SItem, dict ):
 				if addMode == defs.noOverwrite:
 					raise IKException( ErrorCode.valueAlreadyExists, nam )
 				if addMode == defs.sumUp:
-					s = self[nam]
+					s = self[nam].value()
+					val = val.value()
 					if reNumber.match( s ) and reNumber.match( val ):
 						if '.' in s or '.' in val:
 							val = str( float( s ) + float( val ) )
