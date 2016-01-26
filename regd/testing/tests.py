@@ -10,7 +10,7 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-__lastedited__ = "2015-12-14 07:56:58"
+__lastedited__ = "2016-01-26 11:27:51"
 
 import unittest, sys, os, pwd, logging, re, time
 from configparser import ConfigParser
@@ -309,11 +309,11 @@ class MultiuserPermissionTest( unittest.TestCase ):
 		testkey = th.toksections[0] + ":" + th.toknames[0]
 		for treg in mtregs:
 			if treg.acc == "private" or not treg.acc:
-				self.assertFalse( treg.sendCmd( "add" "a=b" ),
+				self.assertFalse( treg.runCmd( "add" "a=b" ),
 								"Failed to check private access for --add command." )
-				self.assertFalse( treg.sendCmd( "get", testkey ),
+				self.assertFalse( treg.runCmd( "get", testkey ),
 								"Failed to check private access for --get command." )
-				self.assertFalse( treg.sendCmd( "remove", testkey ),
+				self.assertFalse( treg.runCmd( "remove", testkey ),
 								"Failed to check private access for --remove command." )
 		log.info( "Done." )
 
