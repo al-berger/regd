@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-01-25 22:32:13"
+__lastedited__ = "2016-01-26 16:41:23"
 
 import sys, os, subprocess, shutil, io
 from multiprocessing import Process, Pipe, Lock
@@ -432,8 +432,15 @@ class FS( CmdProcessor ):
 
 			if dest:
 				tok=joinPath(dest, tok)
-
-			if not self._isPathValid( tok=tok, cmd=cmd ):
+			
+			if binaryVal:
+				tk = None
+				pt = tok
+			else:
+				tk = tok
+				pt = None
+				 
+			if not self._isPathValid( tok=tk, path=pt, cmd=cmd ):
 				raise IKException( ErrorCode.unsupportedParameterValue, tok[:50], "Path is not valid." )
 
 			sec = self.fs.addItem( tok=tok, addMode=addMode, 
