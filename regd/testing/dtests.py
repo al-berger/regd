@@ -10,7 +10,7 @@
 *	Copyright:	   Albert Berger, 2015.
 *
 *********************************************************************'''
-__lastedited__ = "2015-12-14 07:54:20"
+__lastedited__ = "2016-01-26 16:11:41"
 
 import os, tempfile, unittest, logging, time
 import regd.defs as defs
@@ -62,18 +62,25 @@ class SerdataTest( unittest.TestCase ):
 		log.info( "\n%i tokens were checked." % ( len( tf ) ) )
 		secpath = "/sav/f1sec2/file2/file3/f3sec1/QQQQ"
 		tok = secpath + "=PPPP"
-		treg.sendCmd( defs.ADD_TOKEN, tok )
-		treg.sendCmd( defs.SETATTR, secpath, "--attrs", 	"persPath=QQQQ" )
+		treg.runCmd( defs.ADD_TOKEN, tok )
+		treg.runCmd( defs.SETATTR, secpath, "--attrs", 	"persPath=QQQQ" )
 		log.info( "Stopping server." )
-		treg.sendCmd( defs.STOP_SERVER )
+		treg.runCmd( defs.STOP_SERVER )
 		time.sleep( 2 )
 		log.info( "Starting server." )
 		treg.create()
-		res, ret = treg.sendCmd( defs.GET_ITEM, secpath )
+		res, ret = treg.runCmd( defs.GET_ITEM, secpath )
 		self.assertTrue( res and ret == "PPPP" )
 
 		tmpdirobj.cleanup()
 
+class SectionTest( unittest.TestCase ):
+	def test_add(self):
+		sect = { "nam1": "val1", "sect1": {"nam1": "val1"} }
+		
+		treg = th.TestReg( rc, servName="test")
+		treg.sendCmd( defs.ADD_TOKEN, ["/ses/qqq"], binary=[sect] )
+		self.assertTrue( True )
 
 globinit = globInit()
 # Setting up test
