@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2016-01-25 20:20:36"
+__lastedited__ = "2016-01-26 12:28:18"
 
 import os, pwd, logging, re, json, io
 import regd.defs as defs
@@ -525,4 +525,9 @@ def joinPath(p1, p2):
 		p1 += '/'
 		
 	return p1 + p2
-	
+
+def addArgsToMap( m, args, kwargs ):
+	if args:
+		m.update( dict( zip( args, [True] * len( args ) ) ) )
+	if kwargs:
+		m.update( kwargs )	
