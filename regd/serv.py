@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 ********************************************************************'''
-__lastedited__ = "2016-01-25 22:22:00"
+__lastedited__ = "2016-04-01 20:47:17"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
 import multiprocessing as mp
@@ -279,6 +279,14 @@ class RegdServer( CmdProcessor ):
 		bresp = bytearray()
 		cmd = None
 		perm = False
+		# dcmd - command dictionary. Contains three fields:
+		# cmd - command name, received from client
+		# params - command parameters, received from client
+		# res - internal command processing result, set by the command processor or
+		# command handler. This result has the server semantics, rather than the
+		# command semantics: if it's 0 - this means a general program error, e.g.
+		# non-existing command name. It's meant to be handled by the server before
+		# sending response to the client.
 		
 		try:
 			dcmd = util.parsePacket( data )

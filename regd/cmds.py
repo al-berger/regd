@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-01-25 20:47:21"
+__lastedited__ = "2016-04-01 23:11:00"
 
 import io, traceback
 from regd.app import IKException, ErrorCode
@@ -20,7 +20,9 @@ import regd.util as util
 from regd.util import log
 
 class Cmd():
-	'''Server command'''
+	'''Server command abstraction: info about name, syntax, handler and
+	a syntax checking function. Cmd instances are used as command handler
+	records in CmdProcessor subclasses.'''
 	def __init__(self, name:str, npars:str, required:set, optional:set, func):
 		self.name = name
 		self.npars = npars
@@ -52,7 +54,7 @@ class Cmd():
 			if wrong:
 				raise IKException( ErrorCode.unrecognizedSyntax, parlen, "Wrong number of parameters", "Expected: {0}".format( self.npars ) )
 
-		comargs = ("cmd", "params", df.LOG_LEVEL, df.LOG_TOPICS, df.SERVER_NAME, df.HOST, df.PORT)
+		comargs = ("cmd", "params", "res", df.LOG_LEVEL, df.LOG_TOPICS, df.SERVER_NAME, df.HOST, df.PORT)
 
 		cargs = set([x for x in dcmd if x not in comargs])
 
@@ -98,10 +100,14 @@ class CmdProcessor:
 		self.cmdMap[cmd.name] = cmd
 
 	def processCmd(self, cmd):
-		'''Process command'''
-		if cmd["cmd"] not in self.cmdMap:
-			return util.composeResponse( '0', "Unrecognized command: ", cmd["cmd"] )
+		'''Process command. Finds the handler for the command and passes 'cmd' dictionary to it.
+		If the handler is not found, sets the 'res' field of the dictionary to 0.'''
 
+		if cmd["cmd"] not in self.cmdMap:
+			cmd["res"] = 0
+			return util.composeResponse( '0', "Unrecognized command: ", cmd["cmd"] )
+		
+		cmd["res"] = 1
 		CmdSwitcher.info["cmds"][cmd["cmd"]] = 1 + CmdSwitcher.info["cmds"].setdefault(cmd["cmd"], 0)
 		hnd = self.cmdMap[cmd["cmd"]]
 		return hnd( cmd )
@@ -146,8 +152,10 @@ class CmdSwitcher:
 	def switchCmd( cmd ):
 		'''Switch command'''
 		if cmd["cmd"] not in CmdSwitcher.cmdHandlers:
+			cmd['res'] = 0
 			return util.composeResponse( '0', "Unrecognized command: ", cmd["cmd"] )
 
+		cmd['res'] = 1
 		CmdSwitcher.info["cmds"][cmd["cmd"]] = 1 + CmdSwitcher.info["cmds"].setdefault(cmd["cmd"], 0)
 		hnd = CmdSwitcher.cmdHandlers[cmd["cmd"]]
 		return hnd( cmd )

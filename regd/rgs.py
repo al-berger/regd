@@ -11,7 +11,7 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2016-01-25 18:02:03"
+__lastedited__ = "2016-04-01 22:53:04"
 
 import signal
 import regd.serv as serv
@@ -60,12 +60,12 @@ def startRegistry( servername, sockfile = None, host = None, port = None, acc = 
 	sigHandler.push( signal.SIGALRM, signal_handler )
 	
 	try:				
-		# Server
-		log.debug( "Creating server instance")
-		srv = serv.RegdServer( servername, sockfile, host, port, acc )
 		# Storage
 		log.debug( "Creating storage")
 		connStor, sigStor = fs.startStorage( acc, datafile, binsecfile )
+		# Server
+		log.debug( "Creating server instance")
+		srv = serv.RegdServer( servername, sockfile, host, port, acc )
 		# Info
 		log.debug( "Creating info")
 		info.Info( )

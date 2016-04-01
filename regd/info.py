@@ -11,13 +11,13 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2016-01-25 22:27:52"
+__lastedited__ = "2016-04-01 22:34:34"
 
 from datetime import datetime
 from regd.cmds import CmdSwitcher, CmdProcessor
 import regd.util as util
 import regd.app as app
-from regd.util import composeResponse
+from regd.util import log, composeResponse
 from regd.app import IKException, ErrorCode
 import regd.defs as df
 
@@ -100,7 +100,7 @@ class Info( CmdProcessor ):
 			# TODO:
 			bs = getShared( "bytesSent" )
 			br = getShared( "bytesReceived" )
-			resp += "Bytes sent: {0}\n".format( bs )
+			resp = "Bytes sent: {0}\n".format( bs )
 			resp += "Bytes received: {0}\n".format( br )
 		elif par == df.REP_COMMANDS:
 			resp = util.printMap( self.info["cmd"], 0)
@@ -114,18 +114,28 @@ class Info( CmdProcessor ):
 		return composeResponse( retCode, resp )
 
 def setShared( nam, val, mode=None ):
+	'''Assign value to internal shared data.'''
+	"Returns json packet"
 	tok = "{0}={1}".format( util.joinPath( "/_sys", nam ), val )
 	cmd = { "cmd": df.ADD_TOKEN, "params": [tok], "internal": True }
 	if mode == df.FORCE:
 		cmd[df.FORCE] = True
 	elif mode == df.SUM:
 		cmd[df.SUM] = True
-	return CmdSwitcher.switchCmd( cmd )
+	ret = CmdSwitcher.switchCmd( cmd )
+	if cmd['res'] == 0:
+		ret = util.parsePacket( ret )
+		#log.error( "Set shared data '%s' failed: %s" % ( nam, l[1] ) )
+		raise IKException( ErrorCode.programError, ret[1] )
+	
 
 def getShared( nam ):
 	tok = util.joinPath( "/_sys", nam )
 	cmd = { "cmd": df.GET_ITEM, "params": [tok], "internal": True }
 	ret = CmdSwitcher.switchCmd( cmd )
 	ret = util.parsePacket( ret )
+	if cmd['res'] == 0:
+		raise IKException( ErrorCode.programError, ret[1] )
+
 	return ret[1]
 
