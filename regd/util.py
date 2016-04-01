@@ -8,11 +8,13 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2015-12-15 13:13:45"
+__lastedited__ = "2016-01-26 12:28:18"
 
-import os, pwd, logging, re
+import os, pwd, logging, re, json, io
 import regd.defs as defs
 import regd.app as app
+import regd.dtl as dtl
+#import pickle
 from regd.app import IKException, ErrorCode
 
 # Loggers
@@ -41,15 +43,18 @@ def setLog( loglevel, logtopics = None ):
 		strlog_ = logging.StreamHandler()
 		strlog_.setLevel( logging.DEBUG )
 		strlog_.setFormatter( bf )
-		if "tokens" in logtopics and not logtok.hasHandlers():
+		if "tokens" in logtopics:
 			logtok.setLevel( logging.DEBUG )
-			logtok.addHandler( strlog_ )
-		if "comm" in logtopics and not logcomm.hasHandlers():
+			if not logtok.hasHandlers():
+				logtok.addHandler( strlog_ )
+		if "comm" in logtopics:
 			logcomm.setLevel( logging.DEBUG )
-			logcomm.addHandler( strlog_ )
-		if "sr" in logtopics and not logsr.hasHandlers():
+			if not logcomm.hasHandlers():
+				logcomm.addHandler( strlog_ )
+		if "sr" in logtopics:
 			logsr.setLevel( logging.DEBUG )
-			logsr.addHandler( strlog_ )
+			if not logsr.hasHandlers():
+				logsr.addHandler( strlog_ )
 
 def parse_server_name( server_string ):
 	atuser = None
@@ -129,7 +134,6 @@ def recvPack( sock, pack ):
 		except OSError as e:
 			raise IKException( ErrorCode.clientConnectionError, moreInfo = e.strerror )
 
-
 		data.extend( newdata )
 		datalen = len( data )
 		if not packlen and datalen >= 10:
@@ -150,8 +154,25 @@ def sendPack( sock, pack ):
 	cmdpack = bytearray( packlen, encoding = 'utf-8' )
 	cmdpack.extend( pack )
 	sock.sendall( cmdpack )
+	return len( cmdpack )
 
-def createPacket( cpars : 'in map', bpack : 'out bytearray' ):
+def createPacket( cpars : "in map" ):
+	'''Create a command packet for sending to a regd server.'''
+	if not cpars.get( "cmd", None ):
+		raise IKException( ErrorCode.unknownDataFormat, "Command parameters must have 'cmd' field." )
+	#return pickle.dumps( cpars, -1)
+	fh = io.StringIO()
+	js = dtl.Jsonator()
+	json.dump( cpars, fh, default = js.tojson )
+	return fh.getvalue().encode()
+	
+def parsePacket( data : 'in bytes' ):
+	#return pickle.loads( data )
+	fh = io.StringIO( data.decode() )
+	js = dtl.Jsonator( ["regd.stor"] )
+	return json.load( fh, object_hook = js.fromjson )
+
+def createPacket_old( cpars : 'in map', bpack : 'out bytearray' ):
 	'''Create a command packet for sending to a regd server.'''
 	# Format: <packlen> <cmd|opt> <numparams> [<paramlen> <param>]...
 
@@ -214,7 +235,7 @@ def createPacketFromLists( cmd : 'in list', opt : 'in list', bpack : 'out bytear
 				else:
 					bpack.extend( b'0' )
 
-def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list' ) -> str:
+def parsePacket_old( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list' ) -> str:
 	# Server commands and regd command line commands and options are two different sets:
 	# the latter is the CL user interface, and the former is the internal communication
 	# protocol.
@@ -271,7 +292,20 @@ def parsePacket( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out list
 
 class SVal:...
 
-def composeResponse( bpack : 'out bytearray', code = '1', *args ):
+def composeResponse( code = '1', *args ):
+	''' The format of response is a list with two values: result code and returned content.'''
+	resp = [code]
+	#resp.extend( args )
+	if args and len( args ) == 1:
+		args = args[0]
+	resp.append( args )
+	#return pickle.dumps( resp, -1 )
+	fh = io.StringIO()
+	js = dtl.Jsonator()
+	json.dump( resp, fh, default = js.tojson )
+	return fh.getvalue().encode()
+
+def composeResponse_old( bpack : 'out bytearray', code = '1', *args ):
 	'''Response message has hierachical recursive format and can have any number of nested
 	levels. Message logically consists of opaque data chunks (ODC) composed into objects with a
 	simple structure: each object contains the number of items it composed of, the items
@@ -386,7 +420,6 @@ def parseResponse( resp : "byte array with server response",
 	lres.append( res.decode( 'utf-8' ) )
 	unpackObject( [data], lres )
 
-
 def getLog( n ):
 	d = {}
 	app.read_conf( d )
@@ -492,4 +525,9 @@ def joinPath(p1, p2):
 		p1 += '/'
 		
 	return p1 + p2
-	
+
+def addArgsToMap( m, args, kwargs ):
+	if args:
+		m.update( dict( zip( args, [True] * len( args ) ) ) )
+	if kwargs:
+		m.update( kwargs )	
