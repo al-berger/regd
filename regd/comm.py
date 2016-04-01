@@ -10,10 +10,11 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-14 07:48:37"
+__lastedited__ = "2016-01-26 12:29:15"
 
 import os, subprocess as sp, time
-import regd.defs as defs, regd.util as util, regd.cli as cli
+import regd.defs as defs, regd.cli as cli
+import regd.util as util
 from regd.util import log
 from regd.app import IKException, clp
 
@@ -96,7 +97,7 @@ class RegdComm:
 		return res, ret
 
 	def sendCmd( self, m, args = None, kwargs = None ):
-		addArgsToMap( m, args, kwargs )
+		util.addArgsToMap( m, args, kwargs )
 		return regdcmd( m, addr = self.servAddr, servername = self.servName,
 						host = self.host, port = self.port )
 
@@ -177,7 +178,7 @@ class RegdComm:
 			return res, ret
 
 	def getTokenSec( self, nam, *args, **kwargs ):
-		m = { "cmd": defs.GET_TOKEN_SEC, "params": [nam] }
+		m = { "cmd": defs.GET_ITEM, "params": [nam] }
 		return self.sendCmd( m, args, kwargs )
 
 	def createSection( self, path ):
@@ -193,8 +194,4 @@ class RegdComm:
 		return self.addToken( "/sav/log/" + logName + s, message, defs.SUM )
 
 
-def addArgsToMap( m, args, kwargs ):
-	if args:
-		m.update( dict( zip( args, [True] * len( args ) ) ) )
-	if kwargs:
-		m.update( kwargs )
+

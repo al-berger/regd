@@ -74,7 +74,7 @@ the following:
 
 regd <_COMMAND_NAME_> [_COMMAND_PARAMETERS_] [_OPTION_NAME_ [_OPTION_PARAMETERS_]]...
 
-Regd command and option names are distinguished by a different naming style. Option
+Regd commands are distinguished from option names by a different naming style. Option
 names have '--' or '-' prefixes (for long or short name versions accordingly); e.g.: __--pers__. Command names don't have those prefixes: __add__, __show-log__.
 
 _Result_messages_ have the following general syntax:

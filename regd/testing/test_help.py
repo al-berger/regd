@@ -12,14 +12,17 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2015-12-14 07:54:05"
+__lastedited__ = "2016-01-26 12:56:55"
 
 
 import sys, os, argparse, logging, time, re, pwd
 import subprocess as sp
 from configparser import ConfigParser
 # import regd
-import regd.util as util, regd.defs as defs, regd.stor as stor
+import regd.cli as cli
+import regd.defs as defs
+import regd.stor as stor
+import regd.util as util
 import regd.tok as tok
 import regd.app as app
 
@@ -338,8 +341,11 @@ class TestReg:
 			print( rc, "start", "returned non-zero:", e.output )
 			raise app.IKException( app.ErrorCode.operationFailed )
 
-	def sendCmd( self, *args_, **kwargs ):
-		'''Returns:
+	def runCmd( self, *args_, **kwargs ):
+		'''Execute command by running it through regd CLI. Tests both client
+		and server.
+		
+		Returns:
 		1 if '1' is returned
 		0 otherwise
 		-1 if CalledProcessError exception was thrown
@@ -383,13 +389,26 @@ class TestReg:
 
 		return res, ret
 
+	def sendCmd( self, cmd, params, *args, **kwargs ):
+		'''Send command to server via socket. Doesn't launch a client.'''
+		m = { "cmd": cmd, "params": params }
+		util.addArgsToMap(m, args, kwargs)
+		sockfile = None
+		if not self.host:
+			atuser, servername = util.parse_server_name( self.servName )
+			if not servername:
+				servername = "regd"
+			sockdir, sockfile = util.get_filesock_addr( atuser, servername )
+
+		return cli.Client( m, sockfile, self.host, self.port )
+		
 	def do_token_cmd( self, cmd, tokens, cmdOpts = None, fb = None ):
 		global log
 		log.info( "Performing %s on name: %s ; host: %s:%s" % ( cmd, self.servName, self.host,
 															self.port ) )
 
 		for tok, cur in tokens:
-			res, ret = self.sendCmd( cmd, tok, cmdOptions = cmdOpts )
+			res, ret = self.runCmd( cmd, tok, cmdOptions = cmdOpts )
 			if res != 1:
 				print( cmd, "failed: ", ret, "\n", cur )
 				return False
@@ -408,7 +427,7 @@ class TestReg:
 		'''Compares the contents of the registry with the 'tokens' list.'''
 
 		for key, val, cur in checks:
-			res, ret = self.sendCmd( getCmd, key, cmdOptions = cmdOpts )
+			res, ret = self.runCmd( getCmd, key, cmdOptions = cmdOpts )
 			if res != 1:
 				print( getCmd, "failed: ", ret, "\n", cur )
 				return False
@@ -434,7 +453,7 @@ class TestReg:
 		tok = "{0}:{1}={2}".format( s.replace( ":", "\:" ), n.replace( "=", "\=" ), v )
 		cmd = clp( defs.ADD_TOKEN )
 
-		res, ret = self.sendCmd( cmd, tok )
+		res, ret = self.runCmd( cmd, tok )
 		if res != 1:
 			print( cmd, "failed: ", ret )
 			return False
@@ -442,7 +461,7 @@ class TestReg:
 		cmd = clp( defs.GET_ITEM )
 		key = "{0}:{1}".format( s.replace( ":", "\:" ), n )
 
-		res, ret = self.sendCmd( cmd, key )
+		res, ret = self.runCmd( cmd, key )
 		if res != 1:
 			print( cmd, "failed: ", ret )
 			return False
@@ -456,7 +475,7 @@ class TestReg:
 
 		cmd = clp( defs.REMOVE_TOKEN )
 
-		res, ret = self.sendCmd( cmd, key )
+		res, ret = self.runCmd( cmd, key )
 		if res != 1:
 			print( cmd, "failed: ", ret )
 			return False
@@ -467,7 +486,7 @@ def start_servers( parmaps ):
 	tregs = []
 	for m in parmaps:
 		treg = TestReg( rc, **m )
-		treg.sendCmd( defs.STOP_SERVER, "--no-verbose" )
+		treg.runCmd( defs.STOP_SERVER, "--no-verbose" )
 
 		time.sleep( 2 )
 		log.info( "Creating a %s with %s access..." %
@@ -482,7 +501,7 @@ def start_servers( parmaps ):
 			tregs.append( treg )
 		except:
 			for treg in tregs:
-				treg.sendCmd( defs.STOP_SERVER, "--no-verbose" )
+				treg.runCmd( defs.STOP_SERVER, "--no-verbose" )
 
 			raise
 	time.sleep( 2 )
@@ -678,7 +697,7 @@ def basic_test_debug():
 
 	treg = TestReg( rc, servName = "tst", loglevel = "INFO", logtopics = "tokens" )
 	# treg = TestReg( rc, servName="tst", loglevel="INFO" )
-	treg.sendCmd( defs.STOP_SERVER )
+	treg.runCmd( defs.STOP_SERVER )
 	time.sleep( 2 )
 	treg.create()
 	time.sleep( 3 )

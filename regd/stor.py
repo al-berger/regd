@@ -10,13 +10,15 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2015-12-15 13:13:23"
+__lastedited__ = "2016-01-25 21:28:25"
 
-import sys, re, subprocess, tempfile, os, time, threading, shutil
+import sys, re, os, time, threading, shutil
 from enum import Enum
 from regd.util import log, logtok
 from regd.app import IKException, ErrorCode
-import regd.defs as defs, regd.util as util
+import regd.defs as defs
+import regd.util as util
+import regd.app as app
 from regd.defs import dirInclude
 from regd.tok import parse_token, stripOne
 from regd.util import logsr
@@ -38,17 +40,8 @@ reSect = re.compile( SECTIONPATT )
 reDataDirect = re.compile( DATADIRECTPATT )
 reTok = re.compile( TOKENPATT, re.DOTALL )
 reMlTok = re.compile( MULTILINETOKENPATT )
-reEmpty = re.compile( "^\r?\n$" )
+reEmpty = re.compile( "^\r?\n?$" )
 
-PERSNAME = "sav"
-SESNAME = "ses"
-BINNAME = "bin"
-PERSPATH = "/" + PERSNAME
-SESPATH = "/" + SESNAME
-BINPATH = "/" + BINNAME
-
-rootdirs = (SESPATH, PERSPATH, BINPATH)
-serializable_roots = (PERSPATH, BINPATH)
 changed = []
 lock_changed = threading.Lock()
 treeLoad = False
@@ -94,6 +87,9 @@ class SItem:
 		self.storageRef = None
 		self.changed = False
 		return super( SItem, self ).__init__()
+	
+	def value(self):
+		raise NotImplementedError()
 
 	def getAttr( self, attrName = None ):
 		if not attrName:
@@ -115,7 +111,7 @@ class SItem:
 			self.st_mode = attrVal
 		else:
 			self.attrs[attrName] = attrVal
-			if attrName == SItem.Attrs.persPath.name:
+			if attrName == SItem.persPathAttrName:
 				self.setStorageRef( self )
 
 	def setAttrs( self, lattrs ):
@@ -215,21 +211,22 @@ class SItem:
 		return fpath
 
 	def readFromFile( self, fh = None, updateFromStorage = False, filePath = None, 
-					dest = None ):
+					dest = None, addMode = defs.overwrite ):
 		'''Read from one of the three: an open file objectl, a file named in filePath 
 		or update from the backing storage.'''
 		fhd = {}
 		if updateFromStorage:
-			if SItem.Attrs.persPath.name in self.attrs:
+			if SItem.persPathAttrName in self.attrs:
 				self.clear()
 				fpath = self.attrs[SItem.persPathAttrName]
 		elif filePath: 
 			fpath = filePath
 		elif fh:
+			fpath = fh.name
 			fhd[fh.name] = fh
 			fhd['cur'] = fh
 		
-		self.serialize( fhd = fhd, read = True, addMode = defs.overwrite, fpath = fpath, 
+		self.serialize( fhd = fhd, read = True, addMode = addMode, fpath = fpath, 
 					relPath = dest )
 		for fh in fhd.values():
 			fh.close()
@@ -263,7 +260,10 @@ class SVal( SItem ):
 			return self.val
 		else:
 			return str ( self.val )
-
+		
+	def value(self):
+		return self.val
+		
 	def getsize( self ):
 		return len( self.val ) if self.val else 0
 
@@ -273,6 +273,9 @@ class SVal( SItem ):
 
 	def pathName( self ):
 		return self.stor.pathName() + "/" + self.name
+	
+	def stat(self):
+		return { "size" : self.getsize() }
 
 	def serialize( self, fhd, read = True, fpath = None ):
 		'''Serialization (writing) for storage values'''
@@ -383,13 +386,15 @@ class SVal( SItem ):
 																	fhcur.name, s ) )
 
 			writeAttrs( fhcur, self.attrs )
+			if self.attrs:
+				enc = self.attrs.get( "enc", "utf-8" )
+			else:
+				enc = "utf-8"			
+			
 			if type( self.val ) is bytes or type( self.val ) is bytearray:
 				pass
 			elif type( self.val ) is str:
-				if self.attrs:
-					enc = self.attrs.get( "enc", "utf-8" )
-				else:
-					enc = "utf-8"
+
 				v = self.val.encode( enc )
 			else:
 				v = repr( self.val ).encode()
@@ -404,6 +409,7 @@ class SVal( SItem ):
 			self.changed = False
 
 class Stor( SItem, dict ):
+	'''Section'''
 	def __init__( self, rootStor, name = '', mode = None, uid = None, gid = None, ctime = None, mtime = None, atime = None,
 				nlink = None ):
 		self.path = ''
@@ -411,7 +417,7 @@ class Stor( SItem, dict ):
 		return super( Stor, self ).__init__( S_IFDIR, rootStor, mode, uid, gid, ctime, mtime, atime,
 										nlink, name = name )
 
-	def __getitem__( self, key ):
+	def __getitem1__( self, key ):
 		item = super( Stor, self ).__getitem__( key )
 		if isinstance( item, baseSectType ):
 			return item
@@ -424,6 +430,8 @@ class Stor( SItem, dict ):
 		return dict.get( self, *args, **kwargs )
 
 	def __setitem__( self, key, val ):
+		if not hasattr( self, "name"):
+			return dict.__setitem__( self, key, val)
 		if self.name and not key:
 			raise IKException( ErrorCode.unrecognizedParameter, "section name is empty" )
 		if key:
@@ -452,9 +460,43 @@ class Stor( SItem, dict ):
 
 	def __delitem__( self, key ):
 		return super( Stor, self ).__delitem__( key )
+	
+	'''def __setstate__(self, state):
+		oldf = self.__setitem__
+		#self.__setitem__ = dict.__setitem__
+		self.__dict__.update( state )
+		self.__setitem__ = self.__setitem1__'''
 
 	def __contains__( self, key ):
+		
 		return super( Stor, self ).__contains__( key )
+	
+	def value(self):
+		'''Convert the section to dict.'''
+		
+		ret = {}
+		for k,v in self.items():
+			ret[k] = v.value()
+			
+		return ret
+	
+	def appendDict( self, d, key=None, addMode=defs.noOverwrite ):
+		'''Convert a dictionary to a subsection'''
+			
+		if key:
+			if key not in self or addMode == defs.overwrite:
+				self[key] = getstor( rootStor = self.rootStor, mode=self.st.st_mode )
+			self[key].appendDict( d=d, addMode=addMode )
+		else:
+			if addMode == defs.clean:
+				self.clear()
+			for k,v in d.items():
+				if isinstance( v, dict ):
+					if k not in self or addMode == defs.overwrite:
+						self[k] = getstor( rootStor = self.rootStor, mode=self.st.st_mode )
+					self[k].appendDict( d=v, addMode=addMode )
+				else:
+					self.insertNamVal( nam=k, val=v, addMode=addMode )
 
 	class StorIter:
 		def __init__( self, stor, mode ):
@@ -523,32 +565,6 @@ class Stor( SItem, dict ):
 		# else:
 		# 	return self.name
 
-	def isPathValid( self, path ):
-		if not path:
-			return False
-
-		if path[0] != '/':
-			if self.name:
-				path = self.pathName() + "/" + path
-		else:
-			# Absolute paths can only be added at the root section
-			if self.name:
-				return False
-
-		b = False
-		if path[0] == '/':
-			for d in rootdirs:
-				if path.startswith( d ):
-					b = True
-					break
-			if not b:
-				return False
-
-		if path.find( '//' ) != -1:
-			return False
-
-		return True
-
 	def numItems( self, itemType = EnumMode.both ):
 		cnt = None
 		if itemType == EnumMode.both:
@@ -581,49 +597,11 @@ class Stor( SItem, dict ):
 	def setItemAttr( self, path, lattrs ):
 		item = self.getItem( path )
 		return item.setAttrs( lattrs )
-	
-# 	def getSItem( self, path ):
-# 		if type( path ) is str:
-# 			if path[-1] == '/':
-# 				return self.getSectionFromStr( path )
-# 			else:
-# 				return self.getToken( path )
-# 		else:
-# 			return self.getSection( path )
-
-# 	def getSection( self, path ):
-# 		if path:
-# 			if path[0] not in self.keys() or not isinstance( self[path[0]], baseSectType ):
-# 				raise IKException( ErrorCode.objectNotExists, path[0], "Section doesn't exist" )
-# 			if len( path ) > 1:
-# 				return self[path[0]].getSection( path[1:] )
-# 			else:
-# 				if not isinstance( self[path[0]], Stor ):
-# 					raise IKException( ErrorCode.objectAlreadyExists, path[0], "The item is not a section")
-# 				return self[path[0]]
-# 
-# 		return self
-# 
-# 		if not self.name == path:
-# 			curname, _, path = path.partition( '/' )
-# 			if curname != self.name:
-# 				raise IKException( ErrorCode.objectNotExists, curname + '/' + path, "Section doesn't exist" )
-# 			sec, _, path = path.partition( '/' )
-# 			if sec not in self.keys():
-# 				raise IKException( ErrorCode.objectNotExists, path, "Section doesn't exist" )
-# 
-# 			return self[sec].getSection( path )
-# 
-# 		return self
-# 
-# 	def getSectionFromStr( self, path ):
-# 		logtok.debug( "path: %s" % path )
-# 		lpath, _, _ = parse_token( path, False, False )
-# 		return self.getSection( lpath )
 
 	def addItem(self, tok : str=None, path : list=None,	val=None, binaryVal=None, 
 			attrs=None, addMode=defs.noOverwrite ):
 		'''Add a token or section to stor'''
+		
 		if tok:
 			if not binaryVal:
 				path, val = parse_token( tok, bVal = defs.auto )
@@ -641,7 +619,8 @@ class Stor( SItem, dict ):
 			raise IKException( ErrorCode.unknownDataFormat, val, "Token name is not specified" )
 		
 		if val:
-			if not isinstance( val, SVal ):
+			# Storage contains items of two types: SVal and Stor: 
+			if not isinstance( val, SVal ) and not isinstance( val, dict ):
 				nam = path[-1]
 				val = SVal( rootStor = self.rootStor, name = nam, attrs = attrs, val = val )
 		
@@ -650,8 +629,10 @@ class Stor( SItem, dict ):
 	def _addItem(self, path : list=None, val : SVal=None, attrs=None, addMode=defs.noOverwrite ):
 		if not path:
 			raise IKException( ErrorCode.unknownDataFormat, val, "Token path is not specified")
+
 		if len( path ) == 1 and not self.isWritable():
-				raise IKException( ErrorCode.permissionDenied, self.pathName, "Directory is not writeable" )
+			print( "Directory permission: {0}".format( oct( self.st.st_mode ) ) )
+			raise IKException( ErrorCode.permissionDenied, self.pathName(), "Directory is not writeable" )
 
 		curname = path[0]
 
@@ -665,130 +646,45 @@ class Stor( SItem, dict ):
 			
 		return self[curname]._addItem( path=path[1:], val=val, attrs=attrs, addMode=addMode )
 		
-
-# 	def createSection( self, sec ):
-# 		'''Creates new section.
-# 		sec - section string path'''
-# 		if not self.isPathValid( sec ):
-# 			raise IKException( ErrorCode.unrecognizedParameter, sec, "Section name is not valid." )
-# 		curname, _, path = sec.partition( '/' )
-# 		if not curname and self.name:
-# 			raise IKException( ErrorCode.unrecognizedParameter, sec, "Section name is not valid." )
-# 
-# 		if curname not in self.keys():
-# 			if self.name:
-# 				self[curname] = getstor( rootStor = self.rootStor )
-# 				# self.markChanged()
-# 			else:
-# 				raise IKException( ErrorCode.unrecognizedParameter, sec, "Section doesn't exist." )
-# 
-# 		if path:
-# 			return self[curname].createSection( path )
-# 		else:
-# 			return self[curname]
-
-# 	def addSection( self, sec ):
-# 		'''Adds a new section.
-# 		sec : string with the section path or the section SItem object.'''
-# 
-# 		if isinstance( sec, baseSectType ):
-# 			self[sec.name] = sec
-# 			return self
-# 		else:
-# 			return self.createSection( sec )
-
-# 	def addTokenToDest( self, dest, tok, addMode = defs.noOverwrite, binaryVal = None, attrs = None ):
-# 		path, _, _ = parse_token( dest, False, False )
-# 		try:
-# 			sec = self.getSection( path )
-# 		except IKException as e:
-# 			if e.code == ErrorCode.objectNotExists:
-# 				sec = self.createSection( dest )
-# 			else:
-# 				raise
-# 		return sec.addToken( tok, addMode, binaryVal, attrs = attrs )
-
-# 	def addToken( self, tok, addMode = defs.noOverwrite, binaryVal = None, attrs = None,
-# 				val = None, path = None, nam = None ):
-# 		if tok:
-# 			if not binaryVal:
-# 				path, nam, val = parse_token( tok )
-# 			else:
-# 				path, nam, _ = parse_token( tok, True, False )
-# 				val = binaryVal
-# 
-# 		logtok.debug( "addToken(): [tok: {0}]:  path: {1} ; nam: {2} ; val: {3}".format( tok[:100] if tok else "",
-# 									path, nam, val[:100] if tok else val.val[:100] ) )
-# 
-# 		if not nam:
-# 			raise IKException( ErrorCode.unknownDataFormat, tok )
-# 		try:
-# 			sec = self.getSection( path )
-# 		except IKException as e:
-# 			if e.code == ErrorCode.objectNotExists:
-# 				sec = self.createSection( "/".join( path ) )
-# 			else:
-# 				raise
-# 
-# 		return sec.insertNamVal( nam, val, addMode, attrs = attrs )
-
 	def insertNamVal( self, nam, val, addMode = defs.noOverwrite, attrs = None ):
-		if nam in self.keys():
-			if addMode == defs.noOverwrite:
-				raise IKException( ErrorCode.valueAlreadyExists, nam )
-			if addMode == defs.sumUp:
-				s = self[nam]
-				if reNumber.match( s ) and reNumber.match( val ):
-					if '.' in s or '.' in val:
-						val = str( float( s ) + float( val ) )
+		if isinstance( val, dict ):
+			self.appendDict(val, nam, addMode)
+		else:
+			if nam in self.keys():
+				if addMode == defs.noOverwrite:
+					raise IKException( ErrorCode.valueAlreadyExists, nam )
+				if addMode == defs.sumUp:
+					s = self[nam].value()
+					val = val.value()
+					if reNumber.match( s ) and reNumber.match( val ):
+						if '.' in s or '.' in val:
+							val = str( float( s ) + float( val ) )
+						else:
+							val = str( int( s ) + int( val ) )
 					else:
-						val = str( int( s ) + int( val ) )
-				else:
-					val = s + val
-			elif not isinstance( val, SVal ):
-				val = SVal( rootStor = self.rootStor, name = nam, attrs = attrs, val = val )
-		self[nam] = val
+						val = s + val
+				if not isinstance( val, SVal ):
+					val = SVal( rootStor = self.rootStor, name = nam, attrs = attrs, val = val )
+			self[nam] = val
 		return self
 		# self.markChanged()
 		
 	def getItem(self, path):
 		'''Return a token or section with the given path.'''
+		
 		if type( path ) is str:
 			lpath, _ = parse_token( path, bVal = defs.auto )
 			return self.getItem( lpath )
 		else:
 			if path:
 				if path[0] not in self.keys():
-					raise IKException( ErrorCode.objectNotExists, path[0], "Section doesn't exist" )
+					raise IKException( ErrorCode.objectNotExists, path[0], "Item doesn't exist" )
 				if len( path ) > 1:
 					return self[path[0]].getItem( path[1:] )
 				else:
 					return self[path[0]]
-	
+			
 			return self	
-
-# 	def getToken( self, tok ):
-# 		'''Returns the SVal container.'''
-# 		path, nam, _ = parse_token( tok, bVal = False )
-# 
-# 		logtok.debug( "[tok: {0}]:  path: {1} ; nam: {2}".format( tok, path, nam ) )
-# 
-# 		if not ( nam ):
-# 			raise IKException( ErrorCode.unknownDataFormat, tok )
-# 
-# 		sec = self.getSection( path )
-# 		return sec.getSVal( nam )
-
-# 	def getTokenVal( self, tok ):
-# 		'''Returns the token's value.'''
-# 		val = self.getToken( tok ).val
-# 		logtok.debug( val )
-# 		return val  # self.getToken(tok).val
-
-# 	def getSVal( self, nam ):
-# 		if nam not in self.keys():
-# 			raise IKException( ErrorCode.objectNotExists, nam )
-# 		return self.get( nam )
 
 	def removeItem( self, tok ):
 		path, _ = parse_token( tok , bVal = defs.auto )
@@ -796,36 +692,11 @@ class Stor( SItem, dict ):
 			if not ( self.isWritable() and self[path[0]].isWritable() ) :
 				raise IKException( ErrorCode.permissionDenied, tok, "Item is read-only")
 			del self[path[0]]
-			return
+			return self
 		
 		sec = self.getItem( path[:-1] )
-		sec.removeItem( path[-1] )
+		return sec.removeItem( path[-1] )
 		
-# 	def removeToken( self, tok ):
-# 		path, nam, _ = parse_token( tok, bVal = False )
-# 
-# 		if not ( nam ):
-# 			raise IKException( ErrorCode.unknownDataFormat, tok )
-# 
-# 		sec = self.getSection( path )
-# 		return sec.deleteNam( nam )
-# 
-# 	def deleteNam( self, nam ):
-# 		if nam not in self.keys():
-# 			raise IKException( ErrorCode.valueNotExists, nam )
-# 		del self[nam]
-# 		return self
-# 		# self.markChanged()
-# 
-# 	def removeSection( self, sec ):
-# 		path, _, _ = parse_token( sec, False, False )
-# 		cont = self.getSection( path[0:-1] )
-# 		return cont.deleteNam( path[-1] )
-# 
-# 		path, _, nam = sec.rpartition( '/' )
-# 		cont = self.getSection( path )
-# 		return cont.deleteNam( nam )
-
 	def copy( self, src, dst, addMode=defs.noOverwrite ):
 		sitem = self.getItem( src )
 		self.addItem( tok=dst, binaryValue=sitem, addMode=addMode )
@@ -904,7 +775,7 @@ class Stor( SItem, dict ):
 
 	def serialize( self, fhd, read = True, addMode = defs.noOverwrite, relPath = None, 
 				fpath = None, indent = 0 ):
-		if self.storageRef != self:
+		if self.storageRef and self.storageRef != self:
 			raise IKException( ErrorCode.programError, self.pathName(), "serialize() called on non-root of backing storage." )
 
 		if read == True:
@@ -919,8 +790,7 @@ class Stor( SItem, dict ):
 		else:
 			self._serialize( fhd=fhd, read=read, addMode=addMode, relPath=relPath,
 								fpath=fpath )
-			
-		
+
 	def _serialize( self, fhd, read = True, addMode = defs.noOverwrite, relPath = None, 
 				fpath = None, indent = 0 ):
 		'''Reads tokens from or writes to backing storage.'''
@@ -1003,7 +873,7 @@ class Stor( SItem, dict ):
 			while True:
 				origPos = fh.tell()
 				l = fh.readline().decode()
-				if not reEmpty.match( l ):
+				if not reEmpty.match( l ) or not l:
 					fh.seek( origPos, SEEK_SET )
 					break
 
@@ -1021,32 +891,28 @@ class Stor( SItem, dict ):
 						uid = self.st.st_uid, gid = self.st.st_gid )
 				tok.setStorageRef( self.storageRef )
 				fhd["cur"] = fh
-				res = tok.serialize( fhd, read )
+				res = tok.serialize( fhd, read, fpath )
 				if res == 0:
 					break
 				if res == 1:
 					path = [x for x in curPath.split( "/" ) if x]
 					path.append( tok.name )
+					if not self.name:
+						path = [''] + path
 					self.addItem( addMode = addMode, path = path, val = tok )
 		else:
-			if 0 and not self.changed:
-				logsr.debug( "Serializing: Stor {0} not changed".format( self.pathName() ) )
-				return
 			if SItem.persPathAttrName in self.attrs:
 				relPath = ""
 				secpath = ""
 			else:
-				if 1 or relPath:
-					secpath = ( relPath if relPath else "" ) + self.name
-					relPath = secpath
-				else:
-					secpath = self.pathName()[( len( PERSPATH ) + 1 ):]
+				secpath = ( relPath if relPath else "" ) + self.name
+				relPath = secpath
 
 			logsr.debug( "{0}Serializing: Stor {1}".format( " "*indent, self.pathName() ) )
 			if self.numItems( EnumMode.tokens ):
 				logsr.debug( "{0}Stor {1}: writing items".format( " "*indent, self.pathName() ) )
 				if secpath:
-					fh.write( "[{0}]\n".format( secpath ).encode() )
+					fh.write( "\n[{0}]\n\n".format( secpath ).encode() )
 
 				self.enumerate( EnumMode.tokens )
 				for nam, _ in self:
@@ -1063,20 +929,17 @@ class Stor( SItem, dict ):
 
 			self.changed = False
 
-
-
-	@staticmethod
-	def statReg( stok ):
+	def stat( self ):
 		m = OrderedDict()
-		m['num_of_sections'] = stok.numItems( EnumMode.sectionsAll )
-		m['num_of_tokens'] = stok.numItems( EnumMode.tokensAll )
+		m['num_of_sections'] = self.numItems( EnumMode.sectionsAll )
+		m['num_of_tokens'] = self.numItems( EnumMode.tokensAll )
 		m['max_key_length'] = 0
 		m['max_value_length'] = 0
 		m['avg_key_length'] = 0
 		m['avg_value_length'] = 0
 		m['total_size_bytes'] = 0
-		stok.enumerate( EnumMode.tokensAll )
-		for nam, val in stok:
+		self.enumerate( EnumMode.tokensAll )
+		for nam, val in self:
 			if len( nam ) > m['max_key_length']:
 				m['max_key_length'] = len( nam )
 			if len( val ) > m['max_value_length']:
@@ -1092,12 +955,6 @@ class Stor( SItem, dict ):
 
 def getstor( rootStor, name = '', mode = 0o755, gid = None, uid = None ):
 	return Stor( rootStor = rootStor, name = name, mode = mode, gid = gid, uid = uid )
-
-def isPathPers( path ):
-	if path.startswith( PERSPATH ):
-		return True
-	else:
-		return False
 
 baseSectType = Stor
 baseValType = SVal
@@ -1148,23 +1005,6 @@ def read_tokens_from_lines( lines, stok, addMode = defs.noOverwrite ):
 		curTok = stripOne( l, False, True, '\n' )
 	flush()
 
-def read_sec_file( filename, cmd, tok, addMode = defs.noOverwrite ):
-	if not os.path.exists( filename ):
-		log.error( "Cannot find encrypted data file. Exiting." )
-		raise IKException( ErrorCode.operationFailed, "File not found." )
-
-	try:
-		cmd = cmd.replace( "FILENAME", "{0}" )
-		ftxt = subprocess.check_output( cmd.format( filename ),
-							shell = True, stderr = subprocess.DEVNULL )
-	except subprocess.CalledProcessError as e:
-		log.error( ftxt )
-		raise IKException( ErrorCode.operationFailed, e.output )
-
-	ftxt = ftxt.decode( 'utf-8' )
-	ltxt = ftxt.split( "\n" )
-
-	read_tokens_from_lines( ltxt, tok, addMode )
 
 def read_tokens_from_file( filename, tok, addMode = defs.noOverwrite ):
 	'''Reads tokens from a text file. If the file contains several sections, their names
