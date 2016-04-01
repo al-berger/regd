@@ -11,9 +11,9 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-01-26 16:41:23"
+__lastedited__ = "2016-04-01 23:07:23"
 
-import sys, os, subprocess, shutil, io
+import sys, os, subprocess, shutil, io, time
 from multiprocessing import Process, Pipe, Lock
 from socket import SHUT_RDWR, socketpair
 from regd.stor import getstor
@@ -628,6 +628,7 @@ def startStorage( acc, datafile, binsectfile ):
 	p = Process( target=FS.start_loop, args=(connThere, sigThere, acc, datafile, binsectfile), 
 			name="Regd Storage" )
 	p.start()
+	time.sleep( 1 )
 	if p.is_alive():
 		log.info( "Storage started OK." )
 	else:

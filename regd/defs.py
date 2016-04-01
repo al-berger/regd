@@ -10,19 +10,19 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-25 22:29:57"
+__lastedited__ = "2016-04-01 15:28:46"
 
 import regd.app as app
 from regd.app import APPNAME
 
-VERSION = ( 0, 7, 0, 34 )
+VERSION = ( 0, 7, 0 )
 __version__ = '.'.join( [str( x ) for x in VERSION[0:3]] )
 __description__ = 'Registry daemon and data cache'
 __author__ = 'Albert Berger'
 __author_email__ = 'nbdspcl@gmail.com'
 __homepage__ = 'https://github.com/nbdsp/regd'
 __license__ = 'GPL'
-rversion = '.'.join( [str( x ) for x in VERSION[0:3]] ) + '.r' + str( VERSION[3] )
+rversion = '.'.join( [str( x ) for x in VERSION[0:3]] )
 
 sockname 			 = 'regd.sock'
 app.APPNAME 		 = "regd"
