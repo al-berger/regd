@@ -11,7 +11,7 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2016-04-01 22:53:04"
+__lastedited__ = "2016-04-02 10:01:33"
 
 import signal
 import regd.serv as serv
@@ -20,7 +20,7 @@ import regd.cmds as cmds
 import regd.fs as fs
 import regd.defs as defs
 from regd.util import log
-from regd.app import IKException, ErrorCode, sigHandler, ROAttr, glSignal
+from regd.appsm.app import IKException, ErrorCode, sigHandler, ROAttr, glSignal
 
 class Registry():
 	'''Registry'''
