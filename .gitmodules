@@ -1,0 +1,6 @@
+[submodule "regd/appsm"]
+	path = regd/appsm
+	url = /mnt/proj/py/submodules/app
+[submodule "regd/dtlsm"]
+	path = regd/dtlsm
+	url = /mnt/proj/py/submodules/app
