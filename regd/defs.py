@@ -10,10 +10,10 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-04-01 15:28:46"
+__lastedited__ = "2016-04-02 09:58:49"
 
-import regd.app as app
-from regd.app import APPNAME
+import regd.appsm.app as app
+from regd.appsm.app import APPNAME
 
 VERSION = ( 0, 7, 0 )
 __version__ = '.'.join( [str( x ) for x in VERSION[0:3]] )

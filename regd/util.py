@@ -8,14 +8,14 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2016-01-26 12:28:18"
+__lastedited__ = "2016-04-02 10:03:43"
 
 import os, pwd, logging, re, json, io
 import regd.defs as defs
-import regd.app as app
-import regd.dtl as dtl
+import regd.appsm.app as app
+import regd.dtlsm.dtl as dtl
 #import pickle
-from regd.app import IKException, ErrorCode
+from regd.appsm.app import IKException, ErrorCode
 
 # Loggers
 log = logging.getLogger( app.APPNAME )

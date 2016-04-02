@@ -11,10 +11,10 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-04-01 23:11:00"
+__lastedited__ = "2016-04-02 09:58:07"
 
 import io, traceback
-from regd.app import IKException, ErrorCode
+from regd.appsm.app import IKException, ErrorCode
 import regd.defs as df
 import regd.util as util
 from regd.util import log
