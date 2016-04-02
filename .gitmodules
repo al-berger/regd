@@ -3,4 +3,4 @@
 	url = /mnt/proj/py/submodules/app
 [submodule "regd/dtlsm"]
 	path = regd/dtlsm
-	url = /mnt/proj/py/submodules/app
+	url = /mnt/proj/py/submodules/dtl
