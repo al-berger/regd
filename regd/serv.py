@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 ********************************************************************'''
-__lastedited__ = "2016-04-01 20:47:17"
+__lastedited__ = "2016-04-02 10:02:07"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
 import multiprocessing as mp
@@ -17,9 +17,9 @@ import ipaddress, shutil
 import regd.defs as defs
 import regd.util as util
 from regd.util import log, composeResponse
-from regd.app import IKException, ErrorCode, ROAttr
+from regd.appsm.app import IKException, ErrorCode, ROAttr
 import regd.stor as stor
-import regd.app as app
+import regd.appsm.app as app
 import regd.tok as modtok
 from regd.cmds import CmdSwitcher, CmdProcessor
 import regd.info as info

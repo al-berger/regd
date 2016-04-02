@@ -11,16 +11,16 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-04-01 23:07:23"
+__lastedited__ = "2016-04-02 09:59:37"
 
 import sys, os, subprocess, shutil, io, time
 from multiprocessing import Process, Pipe, Lock
 from socket import SHUT_RDWR, socketpair
 from regd.stor import getstor
 import regd.stor as stor
-import regd.app as app
+import regd.appsm.app as app
 from regd.util import log, logtok, composeResponse, joinPath
-from regd.app import IKException, ErrorCode, ROAttr
+from regd.appsm.app import IKException, ErrorCode, ROAttr
 from regd.cmds import CmdProcessor, CmdSwitcher, registerGroupHandler
 import regd.util as util
 import regd.defs as df
