@@ -12,15 +12,15 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2016-01-26 12:12:01"
+__lastedited__ = "2016-04-02 09:56:34"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
 import regd.util as util
-from regd.app import clc, declc, clp
-from regd.app import IKException, ErrorCode
+from regd.appsm.app import clc, declc, clp
+from regd.appsm.app import IKException, ErrorCode
 import regd.defs as defs
-import regd.app as app
+import regd.appsm.app as app
 import regd.rgs as rgs
 
 THISFILE = os.path.basename( __file__ )

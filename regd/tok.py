@@ -10,11 +10,11 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-24 05:22:19"
+__lastedited__ = "2016-04-02 10:03:07"
 
 import re
 from regd.util import logtok
-from regd.app import IKException, ErrorCode
+from regd.appsm.app import IKException, ErrorCode
 import regd.defs as defs
 
 reEqS = re.compile( ".+(?<!\\\)=.+" )

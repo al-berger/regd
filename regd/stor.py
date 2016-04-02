@@ -10,15 +10,15 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-25 21:28:25"
+__lastedited__ = "2016-04-02 10:02:43"
 
 import sys, re, os, time, threading, shutil
 from enum import Enum
 from regd.util import log, logtok
-from regd.app import IKException, ErrorCode
+from regd.appsm.app import IKException, ErrorCode
 import regd.defs as defs
 import regd.util as util
-import regd.app as app
+import regd.appsm.app as app
 from regd.defs import dirInclude
 from regd.tok import parse_token, stripOne
 from regd.util import logsr

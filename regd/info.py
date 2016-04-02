@@ -11,14 +11,14 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2016-04-01 22:34:34"
+__lastedited__ = "2016-04-02 10:00:16"
 
 from datetime import datetime
 from regd.cmds import CmdSwitcher, CmdProcessor
 import regd.util as util
-import regd.app as app
+import regd.appsm.app as app
 from regd.util import log, composeResponse
-from regd.app import IKException, ErrorCode
+from regd.appsm.app import IKException, ErrorCode
 import regd.defs as df
 
 class Info( CmdProcessor ):

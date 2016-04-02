@@ -10,13 +10,13 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-01-26 12:29:15"
+__lastedited__ = "2016-04-02 09:57:57"
 
 import os, subprocess as sp, time
 import regd.defs as defs, regd.cli as cli
 import regd.util as util
 from regd.util import log
-from regd.app import IKException, clp
+from regd.appsm.app import IKException, clp
 
 rc = "regd"
 
