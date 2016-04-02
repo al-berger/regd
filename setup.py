@@ -35,7 +35,7 @@ setup(
     author_email = defs.__author_email__,
     url = defs.__homepage__,
     license = defs.__license__,
-    packages = ['regd', 'regd.testing'],
+    packages = ['regd', 'regd.testing', 'regd.app', 'regd.dtl'],
     # package_data		= {'tests': ['data/test.conf']},
     scripts = ['data/regd'],
     classifiers = classifiers,
