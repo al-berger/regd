@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 ********************************************************************'''
-__lastedited__ = "2016-04-02 10:02:07"
+__lastedited__ = "2016-05-24 13:18:57"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
 import multiprocessing as mp
@@ -215,7 +215,7 @@ class RegdServer( CmdProcessor ):
 			return
 
 		mp.Process( target = self.handle_connection, name = "RegdConnectionHandler",
-							args = ( connection, client_address ) ).start()
+							args = ( connection, client_address, util.connLock ) ).start()
 							
 	def stop(self, sock, mask):
 		'''Regd stop handler. The program is normally stopped only through this.
@@ -243,8 +243,9 @@ class RegdServer( CmdProcessor ):
 		'''Exceptions-catcher wrapper'''
 		connection = args[0]
 		client_address = args[1]
+		storage_lock = args[2]
 		try:
-			self._handle_connection( connection, client_address )
+			self._handle_connection( connection, client_address, storage_lock )
 		except IKException as e:
 			log.error( ( "Exception while handling connection. Continuing loop."
 						"Client: %s ; Exception: %s" ) % ( client_address, e ) )
@@ -257,7 +258,7 @@ class RegdServer( CmdProcessor ):
 			connection.shutdown( socket.SHUT_RDWR )
 			connection.close()
 
-	def _handle_connection( self, connection, client_address ):
+	def _handle_connection( self, connection, client_address, storage_lock ):
 		'''Connection handler'''
 		if not self.host:
 			creds = connection.getsockopt( socket.SOL_SOCKET, socket.SO_PEERCRED,
@@ -267,7 +268,7 @@ class RegdServer( CmdProcessor ):
 		else:
 			log.debug( "new connection: client address: %s" % ( str( client_address ) ) )
 
-		connection.settimeout( 3 )
+		connection.settimeout( 5 )
 
 		data = bytearray()
 		util.recvPack( connection, data )
@@ -337,6 +338,7 @@ class RegdServer( CmdProcessor ):
 			#	bresp = composeResponse( "0", str( IKException( ErrorCode.operationFailed, None, "Persistent tokens are not enabled." ) ) )
 		
 		if not len( bresp ):
+			util.connLock = storage_lock
 			bresp = CmdSwitcher.handleCmd( dcmd )
 
 		try:

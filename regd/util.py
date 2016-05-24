@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2016-04-02 10:03:43"
+__lastedited__ = "2016-05-24 12:25:05"
 
 import os, pwd, logging, re, json, io
 import regd.defs as defs
@@ -16,6 +16,8 @@ import regd.appsm.app as app
 import regd.dtlsm.dtl as dtl
 #import pickle
 from regd.appsm.app import IKException, ErrorCode
+
+connLock = None
 
 # Loggers
 log = logging.getLogger( app.APPNAME )
@@ -132,7 +134,7 @@ def recvPack( sock, pack ):
 		try:
 			newdata = sock.recv( 4096 )
 		except OSError as e:
-			raise IKException( ErrorCode.clientConnectionError, moreInfo = e.strerror )
+			raise IKException( ErrorCode.clientConnectionError, moreInfo = str(e) )
 
 		data.extend( newdata )
 		datalen = len( data )

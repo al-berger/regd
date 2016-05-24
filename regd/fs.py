@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-04-02 09:59:37"
+__lastedited__ = "2016-05-24 13:02:21"
 
 import sys, os, subprocess, shutil, io, time
 from multiprocessing import Process, Pipe, Lock
@@ -600,22 +600,27 @@ def startStorage( acc, datafile, binsectfile ):
 	sigHere.setblocking( False )
 	sigThere.setblocking( False )
 	os.set_inheritable( sigThere.fileno(), True )
-	connLock = Lock()
+	util.connLock = Lock()
 
 	def sendMsgToStorage( cmd ):
 		'''Forwarder of messages to storage'''
 		log.debug("In sendMsgToStorage - cmd: {0}".format( cmd ) )
 		try:
-			with connLock:
-				log.debug( "Sending..." )
-				connHere.send( cmd )
-				log.debug( "Sent. Receiving..." )
-				if connHere.poll( 3 ):
-					ret = connHere.recv()
-					log.debug("In sendMsgToStorage - ret: {0}".format( ret ) )
-				else:
-					ret = composeResponse("0", "Socket timed out or no data to receive.")
-					log.debug( "Nothing to receive" )
+			if not util.connLock.acquire(True, 5):
+				raise IKException( ErrorCode.operationFailed, 
+								"Failed to acquire the lock for connecting to storage." )
+			
+			log.debug( "Sending..." )
+			connHere.send( cmd )
+			log.debug( "Sent. Receiving..." )
+			if connHere.poll( 5 ):
+				ret = connHere.recv()
+				log.debug("In sendMsgToStorage - ret: {0}".format( ret ) )
+			else:
+				ret = composeResponse("0", "Socket timed out or no data to receive.")
+				log.debug( "Nothing to receive" )
+					
+			util.connLock.release()
 		except Exception as e:
 			ret = str( e )
 			log.error("In sendMsgToStorage exception received: {0}".format( ret ) )

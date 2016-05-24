@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2016-04-02 09:56:34"
+__lastedited__ = "2016-04-19 03:07:21"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -89,7 +89,8 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 	if not cpars.get( "cmd", None ):
 		raise IKException( ErrorCode.unknownDataFormat, "Command parameters must have 'cmd' field." )
 
-	tmout = 3
+	#tmout = 3
+	tmout = 5
 
 	try:
 		data = bytearray()
