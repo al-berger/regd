@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2016-01-26 12:56:55"
+__lastedited__ = "2016-06-13 15:03:21"
 
 
 import sys, os, argparse, logging, time, re, pwd
@@ -690,8 +690,8 @@ def basic_test_debug():
 
 	if 0:
 		tok = "\\\:\:= \\\: \\==:\\:=\\::= \\: \\=="
-		sec, nam, val = stor.parse_token( tok )
-		print( sec, nam, val )
+		sec, val = stor.parse_token( tok )
+		print( sec, val )
 		return
 
 

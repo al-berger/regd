@@ -11,9 +11,10 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-04-02 09:58:07"
+__lastedited__ = "2016-06-16 10:55:15"
 
 import io, traceback
+from datetime import datetime
 from regd.appsm.app import IKException, ErrorCode
 import regd.defs as df
 import regd.util as util
@@ -89,6 +90,7 @@ class CmdProcessor:
 		self.cmdMap = {}
 		self.conn = conn
 		self.cont = True
+		self.timestarted = datetime.now()
 		
 		for c in self.cmdDefs:
 			self.addHandler( c )

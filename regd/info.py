@@ -11,7 +11,7 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2016-04-02 10:00:16"
+__lastedited__ = "2016-06-16 12:46:13"
 
 from datetime import datetime
 from regd.cmds import CmdSwitcher, CmdProcessor
@@ -20,6 +20,7 @@ import regd.appsm.app as app
 from regd.util import log, composeResponse
 from regd.appsm.app import IKException, ErrorCode
 import regd.defs as df
+import regd.fs as fs
 
 class Info( CmdProcessor ):
 	'''Info'''
@@ -35,7 +36,6 @@ class Info( CmdProcessor ):
 		self.info = {}
 
 		self.info["general"] = {}
-		self.timestarted = datetime.now()
 
 		Info.registerGroupHandlers( self.processCmd )
 		
@@ -43,10 +43,18 @@ class Info( CmdProcessor ):
 
 	def chCheckServer( self, cmd ):
 		'''Check regd server'''
-		resp = "Up and running since {0}\nUptime:{1}.".format( 
+		# Polling the file storage
+		log.debug( "Checking storage..." )
+		bresp = CmdSwitcher.switchCmd( { "cmd" : fs.FS_CHECK } )
+		log.debug( "Storage checked." )
+		lresp = util.parsePacket( bresp )
+		fsresp = "Storage:\n" + lresp[1]
+
+		resp = "Server:\nUp and running since {0}\nUptime:{1}.\n".format( 
 			str( self.timestarted ).rpartition( "." )[0],
 			str( datetime.now() - self.timestarted ).rpartition( "." )[0] )
-		return composeResponse( '1', resp )
+
+		return composeResponse( '1', resp + fsresp )
 
 
 	def chInfo( self, cmd ):

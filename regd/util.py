@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 *******************************************************************'''
-__lastedited__ = "2016-05-24 12:25:05"
+__lastedited__ = "2016-06-16 09:39:59"
 
 import os, pwd, logging, re, json, io
 import regd.defs as defs
@@ -295,7 +295,7 @@ def parsePacket_old( data : 'in bytes', cmdOptions : 'out list', cmdData : 'out 
 class SVal:...
 
 def composeResponse( code = '1', *args ):
-	''' The format of response is a list with two values: result code and returned content.'''
+	''' The format of response is a list with two elements: result code and returned content.'''
 	resp = [code]
 	#resp.extend( args )
 	if args and len( args ) == 1:

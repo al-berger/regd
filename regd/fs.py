@@ -11,10 +11,11 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-05-24 13:02:21"
+__lastedited__ = "2016-06-16 11:37:38"
 
 import sys, os, subprocess, shutil, io, time
 from multiprocessing import Process, Pipe, Lock
+from datetime import datetime
 from socket import SHUT_RDWR, socketpair
 from regd.stor import getstor
 import regd.stor as stor
@@ -28,8 +29,9 @@ import regd.tok as modtok
 
 # Class commands
 
-FS_INFO = "FS_INFO"
-FS_STOP = "FS_STOP"
+FS_INFO		= "FS_INFO"
+FS_STOP		= "FS_STOP"
+FS_CHECK	= "FS_CHECK"
 
 # persistent
 PERSNAME = "sav"
@@ -70,9 +72,10 @@ class FS( CmdProcessor ):
 	( df.CREATE_SECTION, "1+", None, {df.PERS}, "chCreateSection" ),
 	( df.RENAME, "1+", None, {df.PERS}, "chRename" ),
 	( df.LOAD_FILE_SEC, "?", None, None, "chLoadFileSec" ),
-	( df.CLEAR_SESSION, "0", None, None, "chClearSessionTokens" ), 
-	( FS_INFO, "?", None, None, "chFsInfo" ), 
-	( FS_STOP, "0", None, None, "chFsStop" ) 
+	( df.CLEAR_SESSION, "0", None, None, "chClearSessionTokens" ),
+	( FS_INFO, "?", None, None, "chFsInfo" ),
+	( FS_STOP, "0", None, None, "chFsStop" ),
+	( FS_CHECK, "0", None, None, "chFsCheck" )
 	)
 
 	def __init__(self, conn, acc, datafile, binsecfile=None ):
@@ -257,9 +260,9 @@ class FS( CmdProcessor ):
 	def handleBinToken(self, dest, tok, optmap):
 		if dest:
 			tok = os.path.join( dest, tok )
-		path, nam, val = modtok.parse_token( tok, bNam=True, bVal=True)
-		sec = self.fs.getItem( path )
-		exefile = sec.getItem( nam )
+		path, val = modtok.parse_token( tok, bVal=True)
+		sec = self.fs.getItem( path[0:-1] )
+		exefile = sec.getItem( path[-1] )
 		log.debug( "Calling: " + exefile.val + " " + val )
 		if tok.startswith(BINPATH + "/sh/"):
 			subprocess.call( exefile.val + " " + val, shell=True )
@@ -311,6 +314,13 @@ class FS( CmdProcessor ):
 		self.serialize()
 		log.info("Storage exiting.")
 		return composeResponse()
+
+	def chFsCheck( self, cmd ):
+		resp = "Up and running since {0}\nUptime:{1}.".format( 
+			str( self.timestarted ).rpartition( "." )[0],
+			str( datetime.now() - self.timestarted ).rpartition( "." )[0] )
+
+		return composeResponse( '1', resp )
 
 	def chPathExists( self, cmd ):
 		'''Return True if a token path exists'''

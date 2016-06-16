@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-04-02 10:03:07"
+__lastedited__ = "2016-06-13 15:02:43"
 
 import re
 from regd.util import logtok
@@ -246,17 +246,17 @@ class TokenFeeder:
 		if cnt >= self.__len__():
 			raise StopIteration()
 		tok = self.parts[cnt]
-		path, nam, val = parse_token( tok, True, True )
+		path, val = parse_token( tok, True )
 		cur = "{0} ({1})".format( tok, cnt )
-		return ( ( "/".join( path ), nam, val ), cur )
+		return ( ( "/".join( path ), val ), cur )
 
 	def getTokenB( self, cnt ):
 		if cnt >= self.__len__():
 			raise StopIteration()
 		tok = self.bparts[cnt]
-		path, nam, val = parse_token( tok, True, True )
+		path, val = parse_token( tok, True )
 		cur = "{0} ({1})".format( tok, cnt )
-		return ( ( "/".join( path ), nam, val ), cur )
+		return ( ( "/".join( path ), val ), cur )
 
 	def setMode( self, mode ):
 		if mode < 1 or mode > 6:

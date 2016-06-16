@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2016-04-19 03:07:21"
+__lastedited__ = "2016-06-16 10:58:02"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -125,7 +125,6 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 	except OSError as er:
 		return False, ["regd: Client: Socket error {0}: {1}\nsockfile: {2}; host: {3}; port: {4}".format( 
 												er.errno, er.strerror, sockfile, host, port )]
-
 
 def isServerCmd( cpars ):
 	'''Checks whether the command is solely for communicating with server.'''
