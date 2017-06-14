@@ -11,7 +11,7 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2016-04-02 10:01:33"
+__lastedited__ = "2016-06-16 13:43:06"
 
 import signal
 import regd.serv as serv
@@ -79,6 +79,3 @@ def startRegistry( servername, sockfile = None, host = None, port = None, acc = 
 		#glSignal.wait()
 		shutdown()
 		log.info( "Exiting." )
-
-
-		

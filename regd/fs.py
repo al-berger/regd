@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2016-06-16 11:37:38"
+__lastedited__ = "2017-06-14 18:06:59"
 
 import sys, os, subprocess, shutil, io, time
 from multiprocessing import Process, Pipe, Lock
@@ -228,7 +228,7 @@ class FS( CmdProcessor ):
 			ftxt = subprocess.check_output( cmd,
 								shell = True, stderr = subprocess.DEVNULL )
 		except subprocess.CalledProcessError as e:
-			log.error( e.output + ftxt )
+			log.error( e.output.decode() + "; " + ftxt )
 			raise IKException( ErrorCode.operationFailed, e.output )
 		
 		fh = io.BytesIO( ftxt )
@@ -247,7 +247,15 @@ class FS( CmdProcessor ):
 			l = [x.pathName() for x in ch_ if x.pathName().startswith( r )]
 			if not l:
 				continue
-			commonPath = os.path.commonpath( l )
+			# commonPath = os.path.commonpath( l )  # not in 3.4
+			commonPath = os.path.commonprefix( l )
+			while commonPath:
+				if not os.path.exists( commonPath ):
+					commonPath = os.path.dirname( commonPath )
+					continue
+				else:
+					break
+			# end of commonpath workaround
 			sec = self.fs.getItem( commonPath )
 			fhd = {}
 			sec.serialize( fhd, read = False )
@@ -535,7 +543,11 @@ class FS( CmdProcessor ):
 			except IKException as e:
 				if e.code == ErrorCode.objectNotExists:
 					if not self.defencread:
-						self.read_sec_file()
+						try:
+							self.read_sec_file()
+						except IKException as e1:
+							return composeResponse( '0', "Failed to read secure tokens: " + str( e1 ) )
+
 						self.defencread = True
 					else:
 						raise
@@ -623,7 +635,7 @@ def startStorage( acc, datafile, binsectfile ):
 			log.debug( "Sending..." )
 			connHere.send( cmd )
 			log.debug( "Sent. Receiving..." )
-			if connHere.poll( 5 ):
+			if connHere.poll( 15 ):
 				ret = connHere.recv()
 				log.debug("In sendMsgToStorage - ret: {0}".format( ret ) )
 			else:
@@ -632,7 +644,7 @@ def startStorage( acc, datafile, binsectfile ):
 					
 			util.connLock.release()
 		except Exception as e:
-			ret = str( e )
+			ret = composeResponse( "0", str( e ) )
 			log.error("In sendMsgToStorage exception received: {0}".format( ret ) )
 		
 		return ret
@@ -640,6 +652,8 @@ def startStorage( acc, datafile, binsectfile ):
 	FS.registerGroupHandlers( sendMsgToStorage )
 
 	log.info( "Starting storage process..." )
+	# Timeout for sending from fs back to connectionHandler
+	#connThere.settimeout( 5 )
 	p = Process( target=FS.start_loop, args=(connThere, sigThere, acc, datafile, binsectfile), 
 			name="Regd Storage" )
 	p.start()

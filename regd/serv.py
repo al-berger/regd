@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 ********************************************************************'''
-__lastedited__ = "2016-05-24 13:18:57"
+__lastedited__ = "2016-09-02 14:26:54"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
 import multiprocessing as mp
@@ -204,6 +204,7 @@ class RegdServer( CmdProcessor ):
 			
 			if not os.path.exists( self.sockfile ):
 				log.error( "Socket file {0} is gone. Exiting.".format( self.sockfile ) )
+				exit( 1 )
 			else:
 				continue
 								
@@ -247,11 +248,11 @@ class RegdServer( CmdProcessor ):
 		try:
 			self._handle_connection( connection, client_address, storage_lock )
 		except IKException as e:
-			log.error( ( "Exception while handling connection. Continuing loop."
+			log.error( ( "Exception while handling connection."
 						"Client: %s ; Exception: %s" ) % ( client_address, e ) )
 
 		except Exception as e:
-			log.error( "Exception in server loop. Exiting. %s" % ( e ) )
+			log.error( "Exception in connection handler: %s" % ( e ) )
 			self.sigsock_w.send("stop".encode())
 
 		finally:
@@ -346,9 +347,10 @@ class RegdServer( CmdProcessor ):
 		except OSError as er:
 			log.error( "Socket error {0}: {1}\nClient address: {2}\n".format( 
 							er.errno, er.strerror, client_address ) )
-		else:
-			info.setShared( "bytesReceived", bytesReceived, defs.SUM )
-			info.setShared( "bytesSent", bytesSent, defs.SUM )
+		else: 
+			if type( bytesSent ) is int:
+				info.setShared( "bytesReceived", bytesReceived, defs.SUM )
+				info.setShared( "bytesSent", bytesSent, defs.SUM )
 
 		if cmd == defs.STOP_SERVER and perm:
 			self.sigsock_w.send("stop".encode())

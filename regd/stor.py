@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-04-02 10:02:43"
+__lastedited__ = "2016-07-23 07:18:04"
 
 import sys, re, os, time, threading, shutil
 from enum import Enum
@@ -684,6 +684,7 @@ class Stor( SItem, dict ):
 				else:
 					return self[path[0]]
 			
+			raise IKException( ErrorCode.nameError, "getItem: path is empty" )
 			return self	
 
 	def removeItem( self, tok ):

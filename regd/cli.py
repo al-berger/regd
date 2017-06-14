@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2016-06-16 10:58:02"
+__lastedited__ = "2016-07-09 21:42:31"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -80,7 +80,6 @@ def checkConnection( sockfile = None, host = None, port = None ):
 	'''Checks connection to server.'''
 	return Client( { "cmd": defs.CHECK_SERVER }, sockfile, host, port )[0]
 
-
 def Client( cpars, sockfile = None, host = None, port = None ):
 	'''"Client" function. Performs requests to a running server.'''
 	util.log.debug( "cpars={0}; sock={1}; host={2}; port={3}".format( 
@@ -90,7 +89,7 @@ def Client( cpars, sockfile = None, host = None, port = None ):
 		raise IKException( ErrorCode.unknownDataFormat, "Command parameters must have 'cmd' field." )
 
 	#tmout = 3
-	tmout = 5
+	tmout = 10
 
 	try:
 		data = bytearray()
@@ -435,7 +434,7 @@ def main( *kwargs ):
 		datafile = args.datafile
 		if datafile:
 			if acc == defs.PL_SECURE:
-				print( "Secure access and --datafile option cannot be both specified")
+				print( "--secure access and --datafile option cannot be both specified")
 				return 1
 
 			if datafile == "None":

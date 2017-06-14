@@ -11,7 +11,7 @@
 *		
 *******************************************************************"""
 
-__lastedited__ = "2016-06-16 12:46:13"
+__lastedited__ = "2016-07-23 06:43:08"
 
 from datetime import datetime
 from regd.cmds import CmdSwitcher, CmdProcessor
@@ -48,7 +48,7 @@ class Info( CmdProcessor ):
 		bresp = CmdSwitcher.switchCmd( { "cmd" : fs.FS_CHECK } )
 		log.debug( "Storage checked." )
 		lresp = util.parsePacket( bresp )
-		fsresp = "Storage:\n" + lresp[1]
+		fsresp = "Storage:\n" + str( lresp[1] )
 
 		resp = "Server:\nUp and running since {0}\nUptime:{1}.\n".format( 
 			str( self.timestarted ).rpartition( "." )[0],
