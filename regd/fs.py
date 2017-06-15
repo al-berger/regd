@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2017-06-15 09:13:24"
+__lastedited__ = "2017-06-15 16:25:40"
 
 import sys, os, subprocess, shutil, io, time
 from multiprocessing import Process, Pipe, Lock
@@ -392,7 +392,11 @@ class FS( CmdProcessor ):
 			self.fs[''].listItems( lres = lres, bTree = swTree, nIndent = 0, bNovals = swNovals,
 							relPath = None, bRecur = swRecur )
 		else:
-			sect = self.fs.getItem( par[0] )
+			item = par[0]
+			if item[0] != '/':
+				item = "{0}/{1}".format( PERSPATH if df.PERS in cmd else SESPATH, item )
+
+			sect = self.fs.getItem( item )
 			sect.listItems( lres = lres, bTree = swTree, nIndent = 0, bNovals = swNovals,
 						relPath = None, bRecur = swRecur )
 
