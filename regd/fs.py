@@ -11,7 +11,7 @@
 *
 *******************************************************************"""
 
-__lastedited__ = "2017-06-14 18:06:59"
+__lastedited__ = "2017-06-15 09:13:24"
 
 import sys, os, subprocess, shutil, io, time
 from multiprocessing import Process, Pipe, Lock
@@ -250,11 +250,15 @@ class FS( CmdProcessor ):
 			# commonPath = os.path.commonpath( l )  # not in 3.4
 			commonPath = os.path.commonprefix( l )
 			while commonPath:
-				if not os.path.exists( commonPath ):
-					commonPath = os.path.dirname( commonPath )
-					continue
-				else:
+				try:
+					self.fs.getItem( commonPath )
 					break
+				except IKException as e:
+					if e.code == ErrorCode.objectNotExists:
+						commonPath = os.path.dirname( commonPath )
+						continue				
+					else:
+						raise
 			# end of commonpath workaround
 			sec = self.fs.getItem( commonPath )
 			fhd = {}
