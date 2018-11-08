@@ -8,7 +8,7 @@
 *	Author:			Albert Berger [ alberger@gmail.com ].
 *
 ********************************************************************'''
-__lastedited__ = "2016-09-02 14:26:54"
+__lastedited__ = "2018-11-08 04:09:44"
 
 import sys, time, subprocess, os, pwd, signal, socket, struct, datetime, selectors
 import multiprocessing as mp
@@ -202,9 +202,10 @@ class RegdServer( CmdProcessor ):
 				callback = key.data
 				callback(key.fileobj, mask)
 			
-			if not os.path.exists( self.sockfile ):
+			if 0 : # not os.path.exists( self.sockfile ):
 				log.error( "Socket file {0} is gone. Exiting.".format( self.sockfile ) )
-				exit( 1 )
+				#exit( 1 )
+				return
 			else:
 				continue
 								

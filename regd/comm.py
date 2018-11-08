@@ -10,7 +10,7 @@
 *
 *********************************************************************/
 '''
-__lastedited__ = "2016-04-02 09:57:57"
+__lastedited__ = "2017-07-06 13:41:03"
 
 import os, subprocess as sp, time
 import regd.defs as defs, regd.cli as cli
@@ -192,6 +192,4 @@ class RegdComm:
 	def logMessage( self, logName, message ):
 		s = "{0}".format( time.strftime( "%m-%d %H:%M:%S" ) )
 		return self.addToken( "/sav/log/" + logName + s, message, defs.SUM )
-
-
 
