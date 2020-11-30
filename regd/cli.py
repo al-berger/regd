@@ -12,7 +12,7 @@
 *
 *********************************************************************'''
 
-__lastedited__ = "2016-07-09 21:42:31"
+__lastedited__ = "2019-06-12 05:08:31"
 
 import sys, os, socket, subprocess, logging, argparse, time
 from collections import defaultdict
@@ -54,7 +54,11 @@ def connectToServer( sockfile = None, host = None, port = None, tmout = 3 ):
 	if host:
 		if not port:
 			raise IKException( ErrorCode.unknownDataFormat, "Port number is not provided." )
-		sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+		try:
+			sock = socket.socket( socket.AF_INET, socket.SOCK_STREAM )
+		except socket.error as msg:
+			raise IKException('Failed to create socket. Error code: {0}, Error message: {1}'.format(msg[0], msg[1]) )
+						
 	else:
 		if not os.path.exists( sockfile ):
 			raise IKException( ErrorCode.objectNotExists, sockfile, "Server's socket file doesn't exist" )
